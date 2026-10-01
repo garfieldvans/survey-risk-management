@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palet wizard survey — 1:1 dari :root apps/api/data/reff.html.
+   Tailwind color `survey-*` merujuk ke variabel ini (lihat tailwind.config.js). */
+:root {
+  --survey-navy: #1e3a5f;
+  --survey-navy2: #2d4a6b;
+  --survey-blue: #2e6da4;
+  --survey-lblue: #d6e4f0;
+  --survey-llblue: #eef5fb;
+  --survey-g1: #f5f7fa;
+  --survey-g2: #e1e7ef;
+  --survey-g3: #8a9bb0;
+  --survey-dark: #1a2332;
+  --survey-red: #ba0517;
+  --survey-lred: #fce9ea;
+  --survey-green: #2e844a;
+  --survey-lgreen: #eaf3de;
+  --survey-orange: #e07b00;
+  --survey-lorng: #fef3e2;
+  --survey-purple: #5a31aa;
+  --survey-lpurp: #f3eeff;
+}
+
+@layer base {
+  body {
+    /* Pakai var() langsung (bukan @apply) supaya tidak tergantung pada
+       state config Tailwind saat kompilasi (mis. dev server yang belum direstart). */
+    background-color: var(--survey-g1);
+    color: var(--survey-dark);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white p-5 shadow-sm;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
