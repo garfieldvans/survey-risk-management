@@ -8,6 +8,10 @@ import axios from 'axios';
 // memicu 308 redirect Vercel dan preflight CORS gagal di browser.
 const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
 
+// Diekspor untuk fetch `keepalive` (autosave draft saat tab ditutup) — axios
+// tidak mendukung keepalive, jadi halaman draft memanggil fetch langsung.
+export { API_URL };
+
 export const api = axios.create({
   baseURL: `${API_URL}/api`,
   withCredentials: true,

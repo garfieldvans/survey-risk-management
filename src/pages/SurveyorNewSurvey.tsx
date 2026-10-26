@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { api, API_URL } from '../api/client';
+import { Spinner } from '../components/Spinner';
 import { OccupationBreakdownSelect } from '../components/OccupationBreakdownSelect';
 import type { OccBreakdownItem } from '../lib/occBreakdown';
 import {
@@ -194,6 +195,43 @@ function mapOccToHazard(item: OccBreakdownItem): GradeInputs['oHazard'] {
   return item.riskKey === 'energy' ? '4c' : item.riskKey === 'high' || item.riskKey === 'mhr3' ? '4b' : '4a';
 }
 
+// Bentuk tersimpannya draft (POST /surveys/drafts). Semua state form ikut
+// ter-serialize kecuali lampiran (objek File tidak bisa diserialisasi —// diunggah ulang saat pengiriman).
+type DraftPayload = {
+  v: 1;
+  /** Langkah terakhir yang sedang dikerjakan — dipulihkan saat "Lanjutkan". */
+  step: number;
+  /** Progres kelengkapan untuk ditampilkan di daftar Survei Saya. */
+  progress: { done: number; total: number };
+  info: {
+    tertanggung: string;
+    merk: string;
+    alamat: string;
+    kota: string;
+    kodePos: string;
+    gps: string;
+    surveyDate: string;
+    pelaksana: string;
+    marketing: string;
+    tsi: string;
+    pic: string;
+  };
+  general: Record<string, string>;
+  spJenis: string;
+  special: Record<string, string>;
+  upNotes: string;
+  gi: GradeInputsDraft;
+  gradeNotes: Record<string, string>;
+  lossRows: LossRow[];
+  claimRingkasan: string;
+  occItem: OccBreakdownItem | null;
+  occupancyDesc: string;
+  facilities: FacilityRow[];
+  nhFlood: Record<string, string>;
+  finalNotes: string;
+  savedAt: string;
+};
+
 export function SurveyorNewSurvey() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -242,8 +280,20 @@ export function SurveyorNewSurvey() {
   // Natural Hazards — 5 kriteria Banjir (Ya/Tidak)
   const [nhFlood, setNhFlood] = useState<Record<string, string>>({});
   const [finalNotes, setFinalNotes] = useState('');
-  // Pesan requirement per langkah — terisi saat percobaan navigasi diblokir.
-  const [stepError, setStepError] = useState<Record<number, string>>({});
+
+  // ---- Draft: isian sementara (tersimpan server-side, kedaluwarsa 30 hari) ----
+  const [searchParams] = useSearchParams();
+  const draftParam = searchParams.get('draft');
+  // Id draft diakses lewat ref supaya autosave berantai tidak memakai id basi
+  // (lihat saveDraft) — UI tidak perlu merender id-nya.
+  const [draftLoading, setDraftLoading] = useState(!!draftParam);
+  const [draftState, setDraftState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  // Isian kosong saat menekan "Kirim" — ditawarkan untuk dilengkapi dulu,
+  // tapi surveyor tetap boleh memaksakan kirim (akan ditandai "Belum dijawab").
+  const [pendingReview, setPendingReview] = useState<
+    Array<{ step: number; label: string; msg: string }> | null
+  >(null);
 
   // Anti-duplikasi: bila survei sudah terbuat tapi sebagian lampiran gagal
   // diunggah, retry hanya mengunggah ulang lampiran (bukan membuat survei baru).
@@ -380,6 +430,171 @@ export function SurveyorNewSurvey() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tertanggung, alamat, general, spJenis, gi, occupancyDesc, kota, gempaZone, kodePos, gps, tsi, nhFlood, occItem, special]);
 
+  // ===================== Draft: simpan / pulihkan =====================
+  const draftIdRef = useRef<string | null>(draftParam);
+  // draftParam yang SUDAH dimuat (null = belum ada yang dimuat) — efek load
+  // melewati id yang sudah pernah diterapkan supaya autosave tidak reload state.
+  const loadedDraftRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const queuedSaveRef = useRef(false);
+  const payloadRef = useRef<DraftPayload | null>(null);
+
+  function buildDraftPayload(): DraftPayload {
+    const missing = Object.keys(stepInvalid)
+      .map(Number)
+      .filter((i) => i < steps.length - 1);
+    return {
+      v: 1,
+      step,
+      progress: { done: steps.length - 1 - missing.length, total: steps.length - 1 },
+      info: { tertanggung, merk, alamat, kota, kodePos, gps, surveyDate, pelaksana, marketing, tsi, pic },
+      general,
+      spJenis,
+      special,
+      upNotes,
+      gi,
+      gradeNotes,
+      lossRows,
+      claimRingkasan,
+      occItem,
+      occupancyDesc,
+      facilities,
+      nhFlood,
+      finalNotes,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Pulihkan seluruh state wizard dari draft yang tersimpan. */
+  function applyDraftPayload(p: DraftPayload | null | undefined) {
+    if (!p || typeof p !== 'object') return;
+    const info = p.info ?? ({} as DraftPayload['info']);
+    setTertanggung(info.tertanggung ?? '');
+    setMerk(info.merk ?? '');
+    setAlamat(info.alamat ?? '');
+    setKota(info.kota ?? '');
+    setKodePos(info.kodePos ?? '');
+    setGps(info.gps ?? '');
+    setSurveyDate(info.surveyDate ?? new Date().toISOString().slice(0, 10));
+    setPelaksana(info.pelaksana ?? user?.name ?? '');
+    setMarketing(info.marketing ?? '');
+    setTsi(info.tsi ?? '');
+    setPic(info.pic ?? '');
+    setStep(Math.max(0, Math.min(p.step ?? 0, steps.length - 1)));
+    setGeneral(p.general ?? {});
+    setSpJenis(p.spJenis ?? '');
+    setSpecial(p.special ?? {});
+    setUpNotes(p.upNotes ?? '');
+    setGi({ ...DEFAULT_GRADE_INPUTS, ...(p.gi ?? {}) });
+    setGradeNotes(p.gradeNotes ?? {});
+    const lossRowsNext = p.lossRows ?? [];
+    lossRowIdRef.current = lossRowsNext.reduce((m, r) => Math.max(m, r.id ?? 0), 0);
+    setLossRows(lossRowsNext);
+    setClaimRingkasan(p.claimRingkasan ?? '');
+    setOccItem(p.occItem ?? null);
+    setOccupancyDesc(p.occupancyDesc ?? '');
+    const facilitiesNext = p.facilities ?? [];
+    facilityIdRef.current = facilitiesNext.reduce((m, r) => Math.max(m, r.id ?? 0), 0);
+    setFacilities(facilitiesNext);
+    setNhFlood(p.nhFlood ?? {});
+    setFinalNotes(p.finalNotes ?? '');
+    setPendingReview(null);
+  }
+
+  /**
+   * Simpan draft ke server (upsert per id). `silent` dipakai autosave — tidak
+   * mengubah indikator UI dan tidak menampilkan error.
+   * Request dibatasi satu dalam vuelo; permintaan berikutnya diantre.
+   */
+  async function saveDraft(opts?: { silent?: boolean }): Promise<void> {
+    const silent = opts?.silent ?? false;
+    if (draftLoading) return;
+    if (savingRef.current) {
+      queuedSaveRef.current = true;
+      return;
+    }
+    // Autosave tidak membuat draft kosong — draft baru minimal sudah ada nama
+    // tertanggung (klik manual "Simpan Draft" tetap disimpan apa adanya).
+    if (silent && !draftIdRef.current && !tertanggung.trim()) return;
+    savingRef.current = true;
+    if (!silent) setDraftState('saving');
+    try {
+      const res = await api.post('/surveys/drafts', {
+        id: draftIdRef.current ?? undefined,
+        data: buildDraftPayload(),
+      });
+      const saved = res.data.data.draft as { id: string; updatedAt: string };
+      draftIdRef.current = saved.id;
+      loadedDraftRef.current = saved.id;
+      setDraftSavedAt(saved.updatedAt);
+      setDraftState('saved');
+      // Rekam id di URL supaya refresh browser tetap tahu draft mana yang dibuka.
+      if (!silent && !draftParam) navigate(`/surveys/new?draft=${saved.id}`, { replace: true });
+    } catch (err) {
+      if (!silent) {
+        setDraftState('error');
+        setError(errorMessage(err));
+      }
+    } finally {
+      savingRef.current = false;
+      if (queuedSaveRef.current) {
+        queuedSaveRef.current = false;
+        void saveDraft({ silent: true });
+      }
+    }
+  }
+
+  // Muat draft yang dibuka lewat tombol "Lanjutkan" (\?draft=ID).
+  useEffect(() => {
+    if (!draftParam || loadedDraftRef.current === draftParam) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/surveys/drafts/${draftParam}`);
+        const d = res.data.data.draft as { id: string; data: DraftPayload; updatedAt: string };
+        if (cancelled) return;
+        applyDraftPayload(d.data);
+        draftIdRef.current = d.id;
+        loadedDraftRef.current = d.id;
+        setDraftSavedAt(d.updatedAt);
+        setDraftState('saved');
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err));
+      } finally {
+        if (!cancelled) setDraftLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftParam]);
+
+  // Snapshot terbaru untuk penyimpanan saat tab ditutup.
+  useEffect(() => {
+    payloadRef.current = buildDraftPayload();
+  });
+
+  // Autosave saat tab ditutup/dipindah — axios tidak mendukung `keepalive`,
+  // jadi memakai fetch langsung dengan credentials cookie yang sama.
+  useEffect(() => {
+    const persist = () => {
+      const payload = payloadRef.current;
+      if (!payload) return;
+      const id = draftIdRef.current;
+      if (!id && !payload.info.tertanggung.trim()) return; // belum ada isi sama sekali
+      void fetch(`${API_URL}/api/surveys/drafts`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id ?? undefined, data: payload }),
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+    window.addEventListener('pagehide', persist);
+    return () => window.removeEventListener('pagehide', persist);
+  }, []);
+
   function setG(key: string, v: string) {
     setGeneral((prev) => ({ ...prev, [key]: v }));
   }
@@ -441,36 +656,21 @@ export function SurveyorNewSurvey() {
 
   function goNext() {
     setError('');
-    const err = stepInvalid[step];
-    if (err) {
-      setStepError((prev) => ({ ...prev, [step]: err }));
-      return;
-    }
-    setStepError((prev) => ({ ...prev, [step]: '' }));
     setStep((s) => Math.min(s + 1, steps.length - 1));
+    void saveDraft({ silent: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function goPrev() {
     setError('');
-    setStepError((prev) => ({ ...prev, [step]: '' }));
     setStep((s) => Math.max(s - 1, 0));
+    void saveDraft({ silent: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function goTo(n: number) {
     setError('');
-    // Blokir lompatan MAJU melewati langkah yang requirement-nya belum terpenuhi;
-    // mundur ke langkah sebelumnya selalu diizinkan.
-    if (n > step) {
-      for (let i = step; i < n; i++) {
-        if (stepInvalid[i]) {
-          setStepError((prev) => ({ ...prev, [i]: stepInvalid[i] }));
-          setError(`Langkah ${i + 1} (${steps[i]}) belum lengkap: ${stepInvalid[i]}`);
-          return;
-        }
-      }
-    }
-    setStepError((prev) => ({ ...prev, [step]: '' }));
+    setPendingReview(null);
     setStep(n);
+    void saveDraft({ silent: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -481,16 +681,24 @@ export function SurveyorNewSurvey() {
     setUploads((prev) => ({ ...prev, [bucket]: prev[bucket].filter((_, i) => i !== index) }));
   }
 
-  async function submitSurvey() {
+  async function submitSurvey(force = false) {
     setError('');
-    // Semua langkah sebelum Hasil harus valid sebelum kirim.
-    for (let i = 0; i < steps.length - 1; i++) {
-      if (stepInvalid[i]) {
-        setStepError((prev) => ({ ...prev, [i]: stepInvalid[i] }));
-        setError(`Langkah ${i + 1} (${steps[i]}) belum lengkap: ${stepInvalid[i]}`);
+    if (!force) {
+      // Cek sebelum kirim — navigasi langkah bebas, jadi kelengkapan hanya
+      // dicek di sini: daftar isian kosong ditawarkan untuk dilengkapi dulu,
+      // tapi surveyor tetap boleh memaksakan kirim.
+      const missing = Object.keys(stepInvalid)
+        .map(Number)
+        .sort((a, b) => a - b)
+        .filter((i) => i < steps.length - 1)
+        .map((i) => ({ step: i, label: steps[i], msg: stepInvalid[i] }));
+      if (missing.length > 0) {
+        setPendingReview(missing);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
       }
     }
+    setPendingReview(null);
     setSubmitting(true);
     try {
       const effInputs = buildEffInputs() as GradeInputs;
@@ -592,6 +800,16 @@ export function SurveyorNewSurvey() {
         return;
       }
 
+      // Survei berhasil terkirim — buang draft agar tidak muncul lagi di daftar.
+      if (draftIdRef.current) {
+        try {
+          await api.delete(`/surveys/drafts/${draftIdRef.current}`);
+        } catch {
+          // best-effort — draft tetap kedaluwarsa otomatis dalam 30 hari
+        }
+        draftIdRef.current = null;
+      }
+
       navigate(`/surveys/${surveyId}`, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
@@ -613,11 +831,63 @@ export function SurveyorNewSurvey() {
     <>
       {/* Header ASWATA full-bleed ada di SurveyorLayout (.app-header reff.html).
           Di sini hanya strip progress navy (.progress-wrap reff.html). */}
-      <ProgressSteps labels={steps} current={step} onSelect={goTo} invalidSteps={stepError} />
+      {draftLoading ? (
+        <div className="flex justify-center py-20">
+          <Spinner />
+        </div>
+      ) : (
+      <>
+      <ProgressSteps labels={steps} current={step} onSelect={goTo} />
 
       <div className="mx-auto w-full max-w-[900px] px-4 py-5 pb-16 sm:px-6">
-      {(error || stepError[step]) && (
-        <div className="rounded-lg bg-survey-lred px-4 py-3 text-sm text-survey-red">{error || stepError[step]}</div>
+      {pendingReview && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3.5 text-sm text-amber-900">
+          <p className="font-semibold">
+            ⚠️ Ada {pendingReview.length} isian yang masih kosong. Kirim tetap boleh — isian kosong akan
+            ditandai <b>"Belum dijawab"</b> pada laporan, tapi alangkah baiknya dilengkapi dulu.
+          </p>
+          <ul className="mt-2.5 space-y-1">
+            {pendingReview.map((m) => (
+              <li key={m.step}>
+                <button
+                  type="button"
+                  onClick={() => goTo(m.step)}
+                  className="text-left font-medium text-amber-950 underline decoration-amber-400 underline-offset-2 hover:decoration-amber-700"
+                >
+                  Langkah {m.step + 1} · {m.label}
+                </button>
+                <span className="text-amber-800"> — {m.msg}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => goTo(pendingReview[0].step)}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-amber-700"
+            >
+              ← Lengkapi dulu
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitSurvey(true)}
+              disabled={submitting}
+              className="rounded-lg border border-amber-400 bg-white px-4 py-2 text-[13px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
+            >
+              {submitting ? 'Mengirim...' : '✓ Tetap kirim sekarang'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingReview(null)}
+              className="rounded-lg px-4 py-2 text-[13px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              Nanti dulu
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="mb-4 rounded-lg bg-survey-lred px-4 py-3 text-sm text-survey-red">{error}</div>
       )}
 
       {/* ============ STEP 0: INFO UMUM ============ */}
@@ -1429,16 +1699,34 @@ export function SurveyorNewSurvey() {
         </div>
       )}
 
-      {/* Nav buttons (setara .btn-wrap di reff.html) */}
+      {/* Nav buttons (setara .btn-wrap di reff.html) + Simpan Draft */}
       <div className="flex items-center justify-between gap-2.5 pt-1">
-        <button
-          type="button"
-          className="rounded-lg bg-survey-g2 px-5 py-3 text-[13px] font-semibold text-survey-dark transition-colors hover:bg-survey-g3 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:px-7"
-          onClick={() => (step === 0 ? navigate('/surveys') : goPrev())}
-          disabled={submitting}
-        >
-          {step === 0 ? 'Batal' : '← Sebelumnya'}
-        </button>
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            className="rounded-lg bg-survey-g2 px-5 py-3 text-[13px] font-semibold text-survey-dark transition-colors hover:bg-survey-g3 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:px-7"
+            onClick={() => (step === 0 ? navigate('/surveys') : goPrev())}
+            disabled={submitting}
+          >
+            {step === 0 ? 'Batal' : '← Sebelumnya'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void saveDraft()}
+            disabled={submitting || draftState === 'saving'}
+            className="rounded-lg border border-survey-navy/30 bg-white px-4 py-3 text-[13px] font-semibold text-survey-navy transition-colors hover:bg-survey-llblue disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {draftState === 'saving' ? 'Menyimpan...' : '💾 Simpan Draft'}
+          </button>
+          {draftState === 'saved' && draftSavedAt && (
+            <span className="text-[11px] text-slate-400">
+              Tersimpan {new Date(draftSavedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          {draftState === 'error' && (
+            <span className="text-[11px] font-medium text-survey-red">Draft gagal disimpan</span>
+          )}
+        </div>
         <button
           type="button"
           className="min-w-0 flex-1 rounded-lg bg-survey-navy px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-survey-navy2 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-40 sm:flex-none sm:px-7"
@@ -1455,6 +1743,8 @@ export function SurveyorNewSurvey() {
         </button>
       </div>
       </div>
+      </>
+      )}
     </>
   );
 }

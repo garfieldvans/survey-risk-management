@@ -162,6 +162,27 @@ export interface ReportData {
   };
 }
 
+/** Isian draft wizard (lihat DraftPayload di SurveyorNewSurvey) — hanya bagian
+ *  yang ditampilkan di daftar; field lain ikut tersimpan utuh. */
+export interface SurveyDraftData {
+  step?: number;
+  progress?: { done: number; total: number };
+  info?: {
+    tertanggung?: string;
+    alamat?: string;
+    kota?: string;
+  };
+}
+
+/** Draft survei yang belum dikirim — kedaluwarsa 30 hari sejak simpan terakhir. */
+export interface SurveyDraft {
+  id: string;
+  data: SurveyDraftData | null;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DashboardStats {
   byStatus: Array<{ status: SurveyStatus; count: number }>;
   totalSurveys: number;
