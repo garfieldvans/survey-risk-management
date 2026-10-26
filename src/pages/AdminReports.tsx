@@ -8,7 +8,8 @@ import { Spinner } from '../components/Spinner';
 import { StatusBadge } from '../components/StatusBadge';
 import { SurveyExtraDataCards, EXTRA_SPECIAL_LABELS } from '../components/SurveyExtraDataCards';
 import { formatBytes, formatDateTime } from '../lib/format';
-import { GU_GROUPS, fieldValueLabel } from '../lib/surveyForm';
+import { GU_GROUPS, OCC_SP_JENIS_OPTIONS, fieldValueLabel } from '../lib/surveyForm';
+import { KATEGORI_OKUPANSI_OPTIONS } from '../lib/gradeOptions';
 
 export function AdminReports() {
   const [params] = useSearchParams();
@@ -58,16 +59,30 @@ export function AdminReports() {
     ws.addRow(['Alamat', report.property.address]);
     ws.addRow(['Pemilik', report.property.ownerName]);
     if (str(extra.merk)) ws.addRow(['Nama Komersial / Merk', str(extra.merk)]);
-    if (str(extra.kategoriOkupansi)) ws.addRow(['Jenis Okupansi', str(extra.kategoriOkupansi)]);
-    if (str(extra.kota)) ws.addRow(['Kota / Kabupaten', str(extra.kota)]);
+    const kategoriLabel = KATEGORI_OKUPANSI_OPTIONS.find((o) => o.value === str(extra.kategoriOkupansi))?.label ?? str(extra.kategoriOkupansi);
+    if (kategoriLabel) ws.addRow(['Jenis Okupansi', kategoriLabel]);
+    const jenisLabel = OCC_SP_JENIS_OPTIONS.find((o) => o.value === str(extra.jenisOkupansi))?.label ?? str(extra.jenisOkupansi);
+    if (jenisLabel) ws.addRow(['Kategori Okupansi (khusus)', jenisLabel]);
+    if (str(extra.kota)) ws.addRow(['Kabupaten / Kota', str(extra.kota)]);
+    if (str(extra.kodePos)) ws.addRow(['Kode Pos', str(extra.kodePos)]);
     if (str(extra.gps)) ws.addRow(['Koordinat GPS', str(extra.gps)]);
+    if (str(extra.pic)) ws.addRow(['PIC di Lokasi', str(extra.pic)]);
+    if (str(extra.pelaksana)) ws.addRow(['Pelaksana Survey', str(extra.pelaksana)]);
+    const occBreakdown = (extra.occBreakdown ?? null) as Record<string, unknown> | null;
+    if (occBreakdown && typeof occBreakdown.code === 'string') {
+      ws.addRow([
+        'Breakdown Okupansi ASWATA',
+        `${occBreakdown.code} — ${str(occBreakdown.riskLabel) || str(occBreakdown.description)} (skor ${String(occBreakdown.score ?? '')})`,
+      ]);
+    }
+    if (str(extra.gempaZone)) ws.addRow(['Zona Gempa OJK', `Zona ${str(extra.gempaZone)}`]);
     if (str(extra.marketing)) ws.addRow(['Marketing / Cabang', str(extra.marketing)]);
     if (typeof extra.tsi === 'number') ws.addRow(['Nilai Pertanggungan (TSI)', `Rp ${extra.tsi.toLocaleString('id-ID')}`]);
     if (str(extra.occupancyDesc)) ws.addRow(['Deskripsi Aktivitas Utama', str(extra.occupancyDesc)]);
     if (str(extra.uploadNotes)) ws.addRow(['Catatan Dokumen / Foto', str(extra.uploadNotes)]);
-    ws.addRow(['Level 1 (Industri)', report.property.occupation.level1 ?? '-']);
-    ws.addRow(['Level 2 (Sub)', report.property.occupation.level2 ?? '-']);
-    ws.addRow(['Level 3', report.property.occupation.level3]);
+    ws.addRow(['Level 1 (Industri)', report.property.occupation?.level1 ?? '-']);
+    ws.addRow(['Level 2 (Sub)', report.property.occupation?.level2 ?? '-']);
+    ws.addRow(['Level 3', report.property.occupation?.level3 ?? '-']);
     ws.addRow(['Surveyor', report.surveyor.name]);
     ws.addRow(['Tanggal Survei', formatDateTime(report.surveyDate ?? report.createdAt)]);
     ws.addRow(['Status', report.status]);
@@ -99,13 +114,42 @@ export function AdminReports() {
       specialRows.forEach((r) => ws.addRow([r.label, r.value]));
     }
 
-    // Riwayat Klaim (Loss History)
+    // Riwayat Klaim (Loss History) + detail kerugian per kejadian (revisi)
     const lossHistory = (extra.lossHistory ?? {}) as Record<string, string>;
-    if (lossHistory.lhJumlah || lossHistory.lhNilai) {
+    const lossRows = Array.isArray(extra.lossRows) ? (extra.lossRows as Array<Record<string, string>>) : [];
+    const facilities = Array.isArray(extra.facilities) ? (extra.facilities as Array<Record<string, string>>) : [];
+    if (lossHistory.lhJumlah || lossHistory.lhNilai || lossRows.length > 0) {
       ws.addRow([]);
       ws.addRow(['RIWAYAT KLAIM (LOSS HISTORY)']).eachCell((cell) => (cell.font = { bold: true }));
-      if (lossHistory.lhJumlah) ws.addRow(['Jumlah klaim 5 tahun terakhir', lossHistory.lhJumlah]);
-      if (lossHistory.lhNilai) ws.addRow(['Total nilai klaim', `Rp ${Number(lossHistory.lhNilai).toLocaleString('id-ID')}`]);
+      if (lossHistory.lhJumlah) {
+        const label =
+          lossHistory.lhJumlah === '0'
+            ? '0 klaim'
+            : lossHistory.lhJumlah === '1-2'
+              ? '1–2 klaim'
+              : lossHistory.lhJumlah === '3+'
+                ? '≥ 3 klaim'
+                : lossHistory.lhJumlah;
+        ws.addRow(['Jumlah klaim 5 tahun terakhir', label]);
+      }
+      if (lossHistory.lhNilai && Number(lossHistory.lhNilai) > 0) {
+        ws.addRow(['Total nilai klaim', `Rp ${Number(lossHistory.lhNilai).toLocaleString('id-ID')}`]);
+      }
+      if (str(extra.lossRingkasan)) ws.addRow(['Ringkasan Kejadian & Tindak Lanjut', str(extra.lossRingkasan)]);
+      lossRows.forEach((r) => {
+        const amount = r.amount ? `Rp ${Number(r.amount).toLocaleString('id-ID')}` : '';
+        ws.addRow([
+          `Klaim: ${r.kategori || '-'}`,
+          `${r.tanggal || '-'} | ${r.cause || '-'}${amount ? ` | ${amount}` : ''}`,
+        ]);
+      });
+    }
+
+    // Jarak ke fasilitas terdekat (revisi: baris dinamis di Exposure)
+    if (facilities.length > 0) {
+      ws.addRow([]);
+      ws.addRow(['JARAK KE FASILITAS TERDEKAT']).eachCell((cell) => (cell.font = { bold: true }));
+      facilities.forEach((r) => ws.addRow([r.nama || '-', `${r.arah || '-'} | ${r.jarak || '-'}`]));
     }
 
     ws.addRow([]);
@@ -233,9 +277,9 @@ function ReportBody({ report }: { report: ReportData }) {
       <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
         <div><span className="text-slate-500">Pemilik:</span> <strong>{report.property.ownerName}</strong></div>
         <div><span className="text-slate-500">Surveyor:</span> <strong>{report.surveyor.name} ({report.surveyor.email})</strong></div>
-        <div><span className="text-slate-500">Okupasi L1:</span> {report.property.occupation.level1 ?? '-'}</div>
-        <div className=""><span className="text-slate-500">Okupasi L2:</span> {report.property.occupation.level2 ?? '-'}</div>
-        <div><span className="text-slate-500">Okupasi L3:</span> <strong>{report.property.occupation.level3}</strong></div>
+        <div><span className="text-slate-500">Okupasi L1:</span> {report.property.occupation?.level1 ?? '-'}</div>
+        <div className=""><span className="text-slate-500">Okupasi L2:</span> {report.property.occupation?.level2 ?? '-'}</div>
+        <div><span className="text-slate-500">Okupasi L3:</span> <strong>{report.property.occupation?.level3 ?? '-'}</strong></div>
         <div><span className="text-slate-500">Status:</span> <StatusBadge status={report.status} /></div>
       </div>
 

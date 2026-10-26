@@ -1,7 +1,10 @@
 import type { FieldDef } from '../../lib/surveyForm';
+import { isFieldVisible } from '../../lib/surveyForm';
 import { LABEL_CLASS } from './tokens';
 import { CheckList } from './CheckList';
 import { SelectField, TextAreaField, TextField } from './TextField';
+import { TipBox } from './TipBox';
+import { Req, SubHeading } from './SectionCard';
 
 interface FieldGridProps {
   fields: FieldDef[];
@@ -10,18 +13,30 @@ interface FieldGridProps {
 }
 
 const YES_NO_OPTIONS = [
-  { value: 'yes', label: 'Ada' },
+  { value: 'yes', label: 'Ya' },
   { value: 'no', label: 'Tidak ada' },
 ];
 
-/** Render daftar field wizard (port tata letak `.grid-2` + `.form-group` reff.html). */
+/**
+ * Render daftar field wizard (port tata letak `.grid-2` + `.form-group` +
+ * logika tampil/sembunyi `toggleSub` di prototipe HTML).
+ */
 export function FieldGrid({ fields, values, onChange }: FieldGridProps) {
+  const visible = fields.filter((field) => isFieldVisible(field, values));
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {fields.map((field) => (
+      {visible.map((field) => (
         <div
           key={field.key}
-          className={field.type === 'check' || field.type === 'textarea' || field.cols !== 2 ? 'sm:col-span-2' : ''}
+          className={
+            field.type === 'check' ||
+            field.type === 'textarea' ||
+            field.type === 'heading' ||
+            field.type === 'notice' ||
+            field.cols !== 2
+              ? 'sm:col-span-2'
+              : ''
+          }
         >
           <FieldInput field={field} value={values[field.key] ?? ''} onChange={(value) => onChange(field.key, value)} />
         </div>
@@ -39,10 +54,25 @@ function FieldInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  if (field.type === 'heading') {
+    return <SubHeading>{field.label}</SubHeading>;
+  }
+
+  if (field.type === 'notice') {
+    return (
+      <TipBox tone={field.tone ?? 'info'}>
+        {field.tone === 'danger' ? field.label : field.label}
+      </TipBox>
+    );
+  }
+
   if (field.type === 'check') {
     return (
       <div>
-        <span className={LABEL_CLASS}>{field.label}</span>
+        <span className={LABEL_CLASS}>
+          {field.label}
+          {field.required && <Req />}
+        </span>
         <CheckList
           items={(field.options ?? []).map((option) => ({ id: option.value, label: option.label }))}
           checked={value.split(',').filter(Boolean)}
@@ -62,6 +92,7 @@ function FieldInput({
     return (
       <TextAreaField
         label={field.label}
+        required={field.required}
         value={value}
         onChange={onChange}
         placeholder={field.placeholder}
@@ -74,6 +105,7 @@ function FieldInput({
     return (
       <SelectField
         label={field.label}
+        required={field.required}
         value={value}
         options={field.options ?? []}
         onChange={onChange}
@@ -85,7 +117,10 @@ function FieldInput({
   if (field.type === 'yesno') {
     return (
       <div>
-        <span className={LABEL_CLASS}>{field.label}</span>
+        <span className={LABEL_CLASS}>
+          {field.label}
+          {field.required && <Req />}
+        </span>
         <div className="grid grid-cols-2 gap-2">
           {YES_NO_OPTIONS.map((option) => {
             const selected = value === option.value;
@@ -121,6 +156,7 @@ function FieldInput({
   return (
     <TextField
       label={field.label}
+      required={field.required}
       value={value}
       onChange={onChange}
       type={field.type === 'number' ? 'number' : 'text'}

@@ -13,9 +13,16 @@ interface TextFieldProps {
   readOnly?: boolean;
   min?: number;
   max?: number;
+  maxLength?: number;
+  /** Opsional — kaitkan input ke `<datalist>` (port `list=` di prototipe). */
+  listId?: string;
+  /** Opsional — opsi `<datalist>` untuk `listId`. */
+  listOptions?: string[];
+  /** Opsional — pembatas keyboard di mobile (port `inputmode` di prototipe). */
+  inputMode?: 'text' | 'numeric' | 'decimal';
 }
 
-/** Input teks/angka/tanggal dengan label (`.form-group` di reff.html). */
+/** Input teks/angka/tanggal dengan label (`.form-group` di prototipe). */
 export function TextField({
   label,
   value,
@@ -27,6 +34,10 @@ export function TextField({
   readOnly,
   min,
   max,
+  maxLength,
+  listId,
+  listOptions,
+  inputMode,
 }: TextFieldProps) {
   return (
     <div>
@@ -42,8 +53,19 @@ export function TextField({
         readOnly={readOnly}
         min={min}
         max={max}
+        maxLength={maxLength}
+        list={listId}
+        inputMode={inputMode}
+        autoComplete="off"
         onChange={onChange ? (event) => onChange(event.target.value) : undefined}
       />
+      {listId && (
+        <datalist id={listId}>
+          {(listOptions ?? []).map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      )}
       {hint && <p className="mt-1 text-[11px] italic text-survey-g3">{hint}</p>}
     </div>
   );

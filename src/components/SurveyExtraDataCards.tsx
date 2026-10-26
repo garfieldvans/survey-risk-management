@@ -51,14 +51,29 @@ export function SurveyExtraDataCards({ extra }: { extra: Record<string, unknown>
   const special = (extra?.special ?? {}) as Record<string, string>;
   const lossHistory = (extra?.lossHistory ?? {}) as Record<string, string>;
   const jenisOkupansi = str(extra?.jenisOkupansi);
+  const occBreakdown = (extra?.occBreakdown ?? null) as Record<string, unknown> | null;
+  const lossRows = Array.isArray(extra?.lossRows) ? (extra.lossRows as Array<Record<string, string>>) : [];
+  const facilities = Array.isArray(extra?.facilities) ? (extra.facilities as Array<Record<string, string>>) : [];
+  const gempaZone = str(extra?.gempaZone);
 
   const infoRows: Array<{ label: string; value: string }> = [
     { label: 'Nama Komersial / Merk', value: str(extra?.merk) },
     { label: 'Jenis Okupansi', value: KATEGORI_OKUPANSI_OPTIONS.find((o) => o.value === str(extra?.kategoriOkupansi))?.label ?? '' },
-    { label: 'Kota / Kabupaten', value: str(extra?.kota) },
+    { label: 'Kabupaten / Kota', value: str(extra?.kota) },
+    { label: 'Kode Pos', value: str(extra?.kodePos) },
     { label: 'Koordinat GPS', value: str(extra?.gps) },
     { label: 'Marketing / Cabang', value: str(extra?.marketing) },
+    { label: 'PIC di Lokasi', value: str(extra?.pic) },
+    { label: 'Pelaksana Survey', value: str(extra?.pelaksana) },
     { label: 'Nilai Pertanggungan (TSI)', value: typeof extra?.tsi === 'number' ? `Rp ${extra.tsi.toLocaleString('id-ID')}` : '' },
+    {
+      label: 'Breakdown Okupansi ASWATA',
+      value:
+        occBreakdown && typeof occBreakdown.code === 'string'
+          ? `${occBreakdown.code} — ${str(occBreakdown.riskLabel) || str(occBreakdown.description)} (skor ${String(occBreakdown.score ?? '')})`
+          : '',
+    },
+    { label: 'Zona Gempa OJK', value: gempaZone ? `Zona ${gempaZone}` : '' },
     { label: 'Deskripsi Aktivitas Utama', value: str(extra?.occupancyDesc) },
     { label: 'Catatan Dokumen / Foto', value: str(extra?.uploadNotes) },
   ].filter((r) => r.value !== '');
@@ -132,23 +147,89 @@ export function SurveyExtraDataCards({ extra }: { extra: Record<string, unknown>
         </div>
       )}
 
-      {(lossHistory.lhJumlah || lossHistory.lhNilai) && (
+      {(lossHistory.lhJumlah || lossHistory.lhNilai || lossRows.length > 0 || str(extra?.lossRingkasan)) && (
         <div className="card">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Riwayat Klaim (Loss History)</h3>
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Riwayat Klaim & Kerugian (5 Tahun Terakhir)</h3>
           <dl className="space-y-2 text-sm">
             {lossHistory.lhJumlah && (
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-500">Jumlah klaim 5 tahun terakhir</dt>
-                <dd className="font-medium text-slate-800">{lossHistory.lhJumlah}</dd>
+                <dd className="font-medium text-slate-800">
+                  {lossHistory.lhJumlah === '0'
+                    ? '0 klaim'
+                    : lossHistory.lhJumlah === '1-2'
+                      ? '1–2 klaim'
+                      : lossHistory.lhJumlah === '3+'
+                        ? '≥ 3 klaim'
+                        : lossHistory.lhJumlah}
+                </dd>
               </div>
             )}
-            {lossHistory.lhNilai && (
+            {lossHistory.lhNilai && Number(lossHistory.lhNilai) > 0 && (
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-500">Total nilai klaim</dt>
                 <dd className="font-medium text-slate-800">Rp {Number(lossHistory.lhNilai).toLocaleString('id-ID')}</dd>
               </div>
             )}
+            {str(extra?.lossRingkasan) && (
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <dt className="font-medium text-slate-700">Ringkasan Kejadian & Tindak Lanjut</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap text-slate-800">{str(extra?.lossRingkasan)}</dd>
+              </div>
+            )}
           </dl>
+          {lossRows.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[560px] border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-left text-slate-500">
+                    <th className="border border-slate-200 px-2 py-1.5">Kategori</th>
+                    <th className="border border-slate-200 px-2 py-1.5">Date of Loss</th>
+                    <th className="border border-slate-200 px-2 py-1.5">Cause of Loss</th>
+                    <th className="border border-slate-200 px-2 py-1.5 text-right">Amount of Loss</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lossRows.map((row, i) => (
+                    <tr key={i}>
+                      <td className="border border-slate-200 px-2 py-1.5">{row.kategori ?? ''}</td>
+                      <td className="border border-slate-200 px-2 py-1.5">{row.tanggal ?? ''}</td>
+                      <td className="border border-slate-200 px-2 py-1.5">{row.cause ?? ''}</td>
+                      <td className="border border-slate-200 px-2 py-1.5 text-right">
+                        {row.amount ? `Rp ${Number(row.amount).toLocaleString('id-ID')}` : ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {facilities.length > 0 && (
+        <div className="card">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Jarak ke Fasilitas Terdekat</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-left text-slate-500">
+                  <th className="border border-slate-200 px-2 py-1.5">Nama Fasilitas</th>
+                  <th className="border border-slate-200 px-2 py-1.5">Arah</th>
+                  <th className="border border-slate-200 px-2 py-1.5">Jarak</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facilities.map((row, i) => (
+                  <tr key={i}>
+                    <td className="border border-slate-200 px-2 py-1.5">{row.nama ?? ''}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{row.arah ?? ''}</td>
+                    <td className="border border-slate-200 px-2 py-1.5">{row.jarak ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </>

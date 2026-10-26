@@ -130,7 +130,7 @@ export interface ReportData {
       level1?: string | null;
       level2?: string | null;
       level3: string;
-    };
+    } | null;
   };
   surveyor: { name: string; email: string };
   answers: Array<{
