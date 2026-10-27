@@ -239,7 +239,11 @@ export function buildSurveyReportHtml(data: SurveyReportInput): string {
         )
         .join('')}</table>`
     : '<p><i>Tidak ada riwayat kerugian yang dicatat.</i></p>';
-  const managementSection = section('5. Management', mgmtRows, lossTable);
+  const managementSection = section(
+    '5. Management',
+    mgmtRows,
+    lossTable + essay('Catatan Management', data.gradeNotes.management ?? ''),
+  );
 
   // 6. Construction
   const constructionRows: Pair[] = [

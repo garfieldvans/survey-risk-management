@@ -843,6 +843,25 @@ export function SurveyorNewSurvey() {
         }
       }
 
+      // 2b) Foto checklist Gudang Tembakau 8.1–8.4 — nomor butir disimpan pada
+      // nama file ("8.1 - ...") agar foto tetap terkait pertanyaannya (revisi prototipe).
+      for (const field of TB_PHOTO_FIELDS) {
+        for (const file of tbFotos[field.key]) {
+          const uploadKey = `tb:${field.key}:${file.name}:${file.size}`;
+          if (uploadedKeysRef.current.has(uploadKey)) continue;
+          const renamed = new File([file], `${field.prefix} - ${file.name}`, { type: file.type });
+          const formData = new FormData();
+          formData.append('file', renamed);
+          formData.append('kind', 'photo');
+          try {
+            await api.post(`/surveys/${surveyId}/attachments`, formData);
+            uploadedKeysRef.current.add(uploadKey);
+          } catch {
+            failed.push(renamed.name);
+          }
+        }
+      }
+
       if (failed.length > 0) {
         setError(
           `Survei sudah tersimpan, namun ${failed.length} lampiran gagal diunggah: ${failed.join(', ')}. ` +
@@ -867,6 +886,52 @@ export function SurveyorNewSurvey() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /**
+   * Isian seluruh langkah (termasuk catatan/essay) untuk dokumen laporan PDF.
+   * Sumber data = state form ini, jadi unduhan selalu mencerminkan isian terkini.
+   */
+  function buildReportInput(): SurveyReportInput {
+    return {
+      info: { tertanggung, merk, alamat, kota, kodePos, gps, surveyDate, pelaksana, marketing, tsi, pic },
+      general,
+      spJenis,
+      special,
+      upNotes,
+      uploadNames: [
+        ...UPLOAD_BUCKETS.flatMap((bucket) =>
+          (uploads[bucket.key as UploadBucketKey] ?? []).map((file) => `${bucket.label}: ${file.name}`),
+        ),
+        ...TB_PHOTO_FIELDS.flatMap((field) => tbFotos[field.key].map((file) => `${field.prefix} - ${file.name}`)),
+      ],
+      mAnswers: gi.mAnswers,
+      mKlaim: gi.mKlaim,
+      mImprovement: gi.mImprovement,
+      mRekomendasi: gi.mRekomendasi,
+      cKelas: gi.cKelas,
+      cSandwich: gi.cSandwich,
+      cAcp: gi.cAcp,
+      pApar: gi.pApar,
+      pHidran: gi.pHidran,
+      pDetektor: gi.pDetektor,
+      pSprinkler: gi.pSprinkler,
+      pDamkar: gi.pDamkar,
+      exKondisi: gi.exKondisi,
+      nhPetir: gi.nhPetir,
+      lePemisah: gi.lePemisah,
+      leJmlBangunan: gi.leJmlBangunan,
+      gradeNotes,
+      lossRows,
+      claimRingkasan,
+      occItem,
+      occupancyDesc,
+      facilities,
+      nhFlood,
+      finalNotes,
+      gempaZone,
+      result: gradeResult,
+    };
   }
 
   const spBlock = spJenis ? OCC_BLOCKS[spJenis] : undefined;
@@ -1756,14 +1821,24 @@ export function SurveyorNewSurvey() {
             <div className="flex flex-wrap justify-center gap-2.5 pt-1">
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() =>
+                  printGeneratedDoc(
+                    buildSurveyReportHtml(buildReportInput()),
+                    `Laporan_Survey_${reportFileSuffix(tertanggung)}`,
+                  )
+                }
                 className="rounded-lg bg-survey-navy px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-survey-navy2 sm:px-7"
               >
                 📕 Unduh Survey Report (PDF)
               </button>
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() =>
+                  printGeneratedDoc(
+                    buildRiskGradingHtml(buildReportInput()),
+                    `Risk_Grading_${reportFileSuffix(tertanggung)}`,
+                  )
+                }
                 className="rounded-lg bg-survey-navy px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-survey-navy2 sm:px-7"
               >
                 📊 Unduh Risk Grading (PDF)
