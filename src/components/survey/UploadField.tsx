@@ -7,12 +7,14 @@ interface UploadFieldProps {
   accept: string;
   files: File[];
   hint?: string;
+  /** Default true; false untuk field yang di prototipe hanya satu file. */
+  multiple?: boolean;
   onAdd: (files: File[]) => void;
   onRemove: (index: number) => void;
 }
 
 /** Input file + pratinjau (`.upload-preview` di reff.html). */
-export function UploadField({ label, accept, files, hint, onAdd, onRemove }: UploadFieldProps) {
+export function UploadField({ label, accept, files, hint, multiple = true, onAdd, onRemove }: UploadFieldProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Object URL dibersihkan saat daftar file berubah atau komponen dilepas.
@@ -30,7 +32,7 @@ export function UploadField({ label, accept, files, hint, onAdd, onRemove }: Upl
       <input
         ref={inputRef}
         type="file"
-        multiple
+        multiple={multiple}
         accept={accept}
         className="w-full cursor-pointer rounded-lg border-[1.5px] border-dashed border-survey-g3 bg-survey-g1 px-3 py-2.5 text-xs text-survey-dark file:mr-3 file:rounded-md file:border-0 file:bg-survey-navy file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
         onChange={(event) => {

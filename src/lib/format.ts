@@ -51,6 +51,24 @@ export function errorMessage(err: unknown): string {
   return anyErr?.message ?? 'Terjadi kesalahan';
 }
 
+/**
+ * Pemisah ribuan gaya UI survei (koma — sesuai `formatTsiInput` /
+ * `formatCurrencyInput` pada prototipe HTML revisi terbaru).
+ * Input tetap menyimpan digit murni; fungsi ini hanya untuk tampilan.
+ */
+export function groupDigits(value: string | number | null | undefined, sep = ','): string {
+  if (value === null || value === undefined) return '';
+  const digits = String(value).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, sep);
+}
+
+/** Format Rupiah tampilan: `Rp 1,000,000` (pemisah koma). */
+export function formatRp(value: string | number | null | undefined): string {
+  const grouped = groupDigits(value);
+  return grouped ? `Rp ${grouped}` : '';
+}
+
 export function initialOf(name: string): string {
   return name
     .split(' ')

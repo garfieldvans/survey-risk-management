@@ -11,13 +11,28 @@ import {
   type GradeInputs,
   type MAspectId,
 } from '../shared';
-import { errorMessage } from '../lib/format';
+import { errorMessage, formatRp, groupDigits } from '../lib/format';
+import { protectionGoodLocked } from '../lib/protectionLock';
+import {
+  buildRiskGradingHtml,
+  buildSurveyReportHtml,
+  printGeneratedDoc,
+  reportFileSuffix,
+  type SurveyReportInput,
+} from '../lib/surveyReport';
 import { useAuth } from '../hooks/useAuth';
-import { GU_GROUPS, OCC_BLOCKS, missingRequiredFields, type FieldDef } from '../lib/surveyForm';
+import {
+  ARAH_OPTIONS,
+  DETEKTOR_DETAIL_FIELDS,
+  GU_GROUPS,
+  HIDRAN_DETAIL_FIELDS,
+  OCC_BLOCKS,
+  SPRINKLER_DETAIL_FIELDS,
+  missingRequiredFields,
+} from '../lib/surveyForm';
 import {
   C_KELAS_OPTIONS,
   C_PENALTY_OPTIONS,
-  DETECTOR_TYPE_OPTIONS,
   EX_KONDISI_OPTIONS,
   LE_JML_BANGUNAN_OPTIONS,
   LE_PEMISAH_OPTIONS,
@@ -32,10 +47,8 @@ import {
   OP_ADA_OPTIONS,
   P_APAR_OPTIONS,
   P_COMPONENT_OPTIONS,
-  P_COVERAGE_OPTIONS,
   P_DAMKAR_OPTIONS,
   P_HIDRAN_OPTIONS,
-  YA_TIDAK_OPTIONS,
 } from '../lib/gradeOptions';
 import { KAB_KOTA_ZONE_MAP } from '../lib/gempaZones';
 import { ProgressSteps } from '../components/survey/ProgressSteps';
@@ -73,6 +86,9 @@ const BASE_STEPS = [
   'Hasil',
 ];
 
+// Bucket lampiran — 1:1 seksi Upload Dokumen pada prototipe HTML revisi terbaru
+// ("Dokumen Legal & Pendukung" dihapus; Layout Proteksi Kebakaran, Form Hot
+// Work Permit, dan MSDS ditambahkan — poin review #7).
 const UPLOAD_BUCKETS = [
   {
     key: 'foto',
@@ -81,22 +97,43 @@ const UPLOAD_BUCKETS = [
     hint: 'Bisa pilih beberapa foto sekaligus',
     accept: 'image/*',
     kind: 'photo' as const,
+    multiple: true,
   },
   {
-    key: 'denah',
-    label: '🗺️ Denah / Layout Bangunan',
-    fieldLabel: 'Denah lokasi, layout gudang/pabrik, dsb.',
-    hint: undefined,
-    accept: 'image/*,.pdf',
-    kind: 'auto' as const,
-  },
-  {
-    key: 'legal',
-    label: '📄 Dokumen Legal & Pendukung',
-    fieldLabel: 'IMB/PBG, Sertifikat, Izin Usaha, Laporan Klaim Sebelumnya, dll.',
-    hint: undefined,
-    accept: '.pdf,.doc,.docx,image/*',
+    key: 'site_layout',
+    label: '🗺️ General Site Layout',
+    fieldLabel: 'Upload general site layout / denah keseluruhan lokasi',
+    hint: 'Contoh: site plan, denah bangunan, posisi area utama, akses masuk/keluar.',
+    accept: 'image/*,.pdf,.doc,.docx',
     kind: 'document' as const,
+    multiple: false,
+  },
+  {
+    key: 'fire_layout',
+    label: '🔥 Layout Proteksi Kebakaran',
+    fieldLabel: 'Upload layout proteksi kebakaran',
+    hint: 'Tunjukkan posisi APAR, hydrant, automatic fire detection system, sprinkler, dan proteksi lain yang tersedia.',
+    accept: 'image/*,.pdf,.doc,.docx',
+    kind: 'document' as const,
+    multiple: false,
+  },
+  {
+    key: 'hot_work',
+    label: '📝 Form Hot Work Permit',
+    fieldLabel: 'Upload form / contoh Hot Work Permit',
+    hint: 'Dokumen izin kerja panas yang digunakan di lokasi, jika tersedia.',
+    accept: 'image/*,.pdf,.doc,.docx',
+    kind: 'document' as const,
+    multiple: false,
+  },
+  {
+    key: 'msds',
+    label: '🧪 MSDS (UNTUK PABRIK DAN GUDANG KIMIA)',
+    fieldLabel: 'Upload Material Safety Data Sheet (MSDS)',
+    hint: 'Digunakan untuk okupansi Pabrik dan Gudang Kimia. Bisa unggah lebih dari satu dokumen.',
+    accept: 'image/*,.pdf,.doc,.docx,.xls,.xlsx',
+    kind: 'document' as const,
+    multiple: true,
   },
 ];
 
@@ -135,58 +172,27 @@ const DEFAULT_GRADE_INPUTS: GradeInputsDraft = {
   oHazardCat: '',
 };
 
-type UploadBucketKey = 'foto' | 'denah' | 'legal';
+type UploadBucketKey = 'foto' | 'site_layout' | 'fire_layout' | 'hot_work' | 'msds';
 
-// ---------- field descriptor blok detail proteksi (revisi prototipe) ----------
+// ---------- foto checklist gudang tembakau 8.1–8.4 (revisi prototipe) ----------
 
-const HIDRAN_DETAIL_FIELDS: FieldDef[] = [
-  { key: 'p_hidran_indoor', label: 'Jumlah unit indoor hydrant', type: 'text', required: true, placeholder: 'Contoh: 4', cols: 2 },
-  { key: 'p_hidran_outdoor', label: 'Jumlah unit outdoor hydrant', type: 'text', required: true, placeholder: 'Contoh: 2', cols: 2 },
-  { key: '_jh', type: 'heading', label: 'Pompa joki' },
-  { key: 'p_jockey_qty', label: 'Jumlah unit', type: 'text', required: true, placeholder: 'Contoh: 1', cols: 2 },
-  { key: 'p_jockey_cap', label: 'Kapasitas (GPM / Liter per Menit / m³/jam)', type: 'text', required: true, placeholder: 'Contoh: 500 GPM', cols: 2 },
-  { key: 'p_jockey_auto', label: 'Automatic start', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
-  { key: '_mh', type: 'heading', label: 'Pompa utama elektrik' },
-  { key: 'p_mainpump_qty', label: 'Jumlah unit', type: 'text', required: true, placeholder: 'Contoh: 2', cols: 2 },
-  { key: 'p_mainpump_cap', label: 'Kapasitas (GPM / Liter per Menit / m³/jam)', type: 'text', required: true, placeholder: 'Contoh: 1.000 GPM', cols: 2 },
-  { key: 'p_mainpump_auto', label: 'Automatic start', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
-  { key: '_dh', type: 'heading', label: 'Pompa cadangan diesel' },
-  { key: 'p_dieselpump_qty', label: 'Jumlah unit', type: 'text', required: true, placeholder: 'Contoh: 1', cols: 2 },
-  { key: 'p_dieselpump_cap', label: 'Kapasitas (GPM / Liter per Menit / m³/jam)', type: 'text', required: true, placeholder: 'Contoh: 1.000 GPM', cols: 2 },
-  { key: 'p_dieselpump_auto', label: 'Automatic start', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
-  { key: 'p_hidran_water_cap', label: 'Kapasitas penyimpanan air untuk hydrant (m³ atau Liter)', type: 'text', required: true, placeholder: 'Contoh: 50 m³', cols: 2 },
-];
+const TB_PHOTO_FIELDS = [
+  { key: 'tb81', prefix: '8.1', label: '8.1 — Foto jenis kemasan tembakau' },
+  { key: 'tb82', prefix: '8.2', label: '8.2 — Foto ketinggian tumpukan' },
+  { key: 'tb83', prefix: '8.3', label: '8.3 — Foto jarak antar tumpukan' },
+  { key: 'tb84', prefix: '8.4', label: '8.4 — Foto kondisi ventilasi gudang' },
+] as const;
 
-const DETEKTOR_DETAIL_FIELDS: FieldDef[] = [
-  { key: 'p_det_normal', label: 'Apakah sistem detector kebakaran otomatis berfungsi secara normal?', type: 'select', required: true, options: YA_TIDAK_OPTIONS },
-  { key: 'p_det_jenis', label: 'Jenis detektor kebakaran', type: 'check', required: true, options: DETECTOR_TYPE_OPTIONS },
-  { key: 'p_det_coverage', label: 'Cakupan instalasi (dari total luas lantai)', type: 'select', required: true, options: P_COVERAGE_OPTIONS, cols: 2 },
-  { key: 'p_det_area', label: 'Mohon dijelaskan area cakupan', type: 'textarea', required: true, placeholder: 'Contoh: seluruh lantai gudang 1–3, koridor, ruang listrik' },
-];
+type TbPhotoKey = (typeof TB_PHOTO_FIELDS)[number]['key'];
 
-const SPRINKLER_DETAIL_FIELDS: FieldDef[] = [
-  { key: 'p_spr_water_same', label: 'Suplai air sama dengan sistem hydrant?', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
-  { key: 'p_spr_water_detail', label: 'Jika tidak, mohon dijelaskan', type: 'textarea', required: true, showWhen: [{ key: 'p_spr_water_same', value: 'tidak' }], placeholder: 'Jelaskan sumber & kapasitas suplai air sprinkler yang terpisah...' },
-  { key: 'p_spr_coverage', label: 'Cakupan instalasi (dari total luas lantai)', type: 'select', required: true, options: P_COVERAGE_OPTIONS, cols: 2 },
-  { key: 'p_spr_area', label: 'Mohon dijelaskan area cakupan', type: 'textarea', required: true, placeholder: 'Contoh: seluruh area produksi dan penyimpanan' },
-];
+// Field detail proteksi (HIDRAN/DETEKTOR/SPRINKLER_DETAIL_FIELDS) & ARAH_OPTIONS
+// dipindah ke src/lib/surveyForm.ts agar bisa dipakai laporan PDF naratif.
 
 /** Baris detail kerugian/klaim (Loss History per kejadian). */
 type LossRow = { id: number; kategori: string; tanggal: string; cause: string; amount: string };
 
 /** Baris jarak ke fasilitas terdekat (Exposure). */
 type FacilityRow = { id: number; nama: string; arah: string; jarak: string };
-
-const ARAH_OPTIONS = [
-  { value: 'utara', label: 'Utara' },
-  { value: 'timur_laut', label: 'Timur Laut' },
-  { value: 'timur', label: 'Timur' },
-  { value: 'tenggara', label: 'Tenggara' },
-  { value: 'selatan', label: 'Selatan' },
-  { value: 'barat_daya', label: 'Barat Daya' },
-  { value: 'barat', label: 'Barat' },
-  { value: 'barat_laut', label: 'Barat Laut' },
-];
 
 /** Pemetaan skor Breakdown ASWATA → value oHazard (kompatibel grading lama). */
 function mapOccToHazard(item: OccBreakdownItem): GradeInputs['oHazard'] {
@@ -239,6 +245,8 @@ export function SurveyorNewSurvey() {
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** Langkah yang dicoba dilewati tapi belum lengkap — untuk menampilkan blok error navigasi. */
+  const [navAttempted, setNavAttempted] = useState<number | null>(null);
 
   // ---- Step 0: Info Umum ----
   const [tertanggung, setTertanggung] = useState('');
@@ -261,7 +269,15 @@ export function SurveyorNewSurvey() {
   const [special, setSpecial] = useState<Record<string, string>>({});
 
   // ---- Step 3: Upload ----
-  const [uploads, setUploads] = useState<Record<UploadBucketKey, File[]>>({ foto: [], denah: [], legal: [] });
+  const [uploads, setUploads] = useState<Record<UploadBucketKey, File[]>>({
+    foto: [],
+    site_layout: [],
+    fire_layout: [],
+    hot_work: [],
+    msds: [],
+  });
+  // Foto checklist gudang tembakau 8.1–8.4 (diisi langsung di blok okupansi).
+  const [tbFotos, setTbFotos] = useState<Record<TbPhotoKey, File[]>>({ tb81: [], tb82: [], tb83: [], tb84: [] });
   const [upNotes, setUpNotes] = useState('');
 
   // ---- Steps 4–10: grading inputs + catatan per section ----
@@ -316,6 +332,8 @@ export function SurveyorNewSurvey() {
   // ---- nilai turunan (port perilaku JS prototipe) ----
   // Zona Gempa OJK otomatis dari Kabupaten/Kota (Tabel III.D SEOJK 6/2017)
   const gempaZone = KAB_KOTA_ZONE_MAP[kota.trim()] ?? '';
+  // Blok foto tembakau 8.1–8.4 tampil saat okupansi Gudang + komoditas Tembakau.
+  const showTbPhotos = spJenis === 'gudang' && (special.gd_komoditas ?? '') === 'tembakau';
   const effGempa = gempaZone ? (gempaZone === '5' ? 'marg' : 'avg') : '';
   const floodComplete = NH_FLOOD_CRITERIA.every((c) => (nhFlood[c.key] ?? '') !== '');
   const effBanjir = floodComplete
@@ -351,6 +369,21 @@ export function SurveyorNewSurvey() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [gi, occItem, kota, nhFlood, tsi, special, spJenis],
   );
+
+  // Kunci "Ada & Fungsional" saat ada pertanyaan lanjutan berjawab Tidak /
+  // Tidak Tahu — port refreshProtectionFunctionalLock (poin review #8).
+  const lockHidran = protectionGoodLocked('hidran', special);
+  const lockDetektor = protectionGoodLocked('detektor', special);
+  const lockSprinkler = protectionGoodLocked('sprinkler', special);
+
+  // Bila status masih "Ada & Fungsional" ketika jawaban negatif muncul,
+  // turunkan otomatis ke "Ada (dengan catatan)" lalu kunci pilihannya.
+  useEffect(() => {
+    if (lockHidran && gi.pHidran === 'good') setGI('pHidran', 'avg');
+    if (lockDetektor && gi.pDetektor === 'good') setGI('pDetektor', 'avg');
+    if (lockSprinkler && gi.pSprinkler === 'good') setGI('pSprinkler', 'avg');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockHidran, lockDetektor, lockSprinkler, gi.pHidran, gi.pDetektor, gi.pSprinkler]);
 
   // Input grading yang wajib dipilih sebelum boleh lanjut/loncat melewati langkahnya.
   const STEP_REQUIRED_KEYS: Record<number, Array<keyof GradeInputs>> = {
@@ -656,12 +689,21 @@ export function SurveyorNewSurvey() {
 
   function goNext() {
     setError('');
+    // Kunci isian wajib (poin review #1): blokir maju selama langkah ini belum lengkap.
+    const issue = stepInvalid[step];
+    if (issue) {
+      setNavAttempted(step);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    setNavAttempted(null);
     setStep((s) => Math.min(s + 1, steps.length - 1));
     void saveDraft({ silent: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function goPrev() {
     setError('');
+    setNavAttempted(null);
     setStep((s) => Math.max(s - 1, 0));
     void saveDraft({ silent: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -669,6 +711,20 @@ export function SurveyorNewSurvey() {
   function goTo(n: number) {
     setError('');
     setPendingReview(null);
+    // Port `goTo` prototipe: melompat maju memvalidasi tiap langkah di antaranya;
+    // isian kosong memindahkan ke langkah bermasalah dan menampilkan errornya.
+    if (n > step) {
+      for (let i = step; i < n; i++) {
+        const issue = stepInvalid[i];
+        if (issue) {
+          setNavAttempted(i);
+          if (i !== step) setStep(i);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+      }
+    }
+    setNavAttempted(null);
     setStep(n);
     void saveDraft({ silent: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -681,22 +737,19 @@ export function SurveyorNewSurvey() {
     setUploads((prev) => ({ ...prev, [bucket]: prev[bucket].filter((_, i) => i !== index) }));
   }
 
-  async function submitSurvey(force = false) {
+  async function submitSurvey() {
     setError('');
-    if (!force) {
-      // Cek sebelum kirim — navigasi langkah bebas, jadi kelengkapan hanya
-      // dicek di sini: daftar isian kosong ditawarkan untuk dilengkapi dulu,
-      // tapi surveyor tetap boleh memaksakan kirim.
-      const missing = Object.keys(stepInvalid)
-        .map(Number)
-        .sort((a, b) => a - b)
-        .filter((i) => i < steps.length - 1)
-        .map((i) => ({ step: i, label: steps[i], msg: stepInvalid[i] }));
-      if (missing.length > 0) {
-        setPendingReview(missing);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
+    // Cek sebelum kirim — navigasi juga sudah dikunci per langkah, tapi
+    // kelengkapan tetap diperiksa ulang di sini (tidak ada lagi opsi paksa).
+    const missing = Object.keys(stepInvalid)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .filter((i) => i < steps.length - 1)
+      .map((i) => ({ step: i, label: steps[i], msg: stepInvalid[i] }));
+    if (missing.length > 0) {
+      setPendingReview(missing);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
     }
     setPendingReview(null);
     setSubmitting(true);
@@ -780,9 +833,7 @@ export function SurveyorNewSurvey() {
           if (uploadedKeysRef.current.has(uploadKey)) continue;
           const formData = new FormData();
           formData.append('file', file);
-          const kind =
-            bucket.kind === 'auto' ? (file.type.startsWith('image/') ? 'photo' : 'document') : bucket.kind;
-          formData.append('kind', kind);
+          formData.append('kind', bucket.kind);
           try {
             await api.post(`/surveys/${surveyId}/attachments`, formData);
             uploadedKeysRef.current.add(uploadKey);
@@ -837,14 +888,20 @@ export function SurveyorNewSurvey() {
         </div>
       ) : (
       <>
-      <ProgressSteps labels={steps} current={step} onSelect={goTo} />
+      <ProgressSteps labels={steps} current={step} onSelect={goTo} invalidSteps={stepInvalid} />
 
       <div className="mx-auto w-full max-w-[900px] px-4 py-5 pb-16 sm:px-6">
+      {navAttempted !== null && navAttempted === step && stepInvalid[step] && (
+        <div className="mb-4 rounded-lg border border-survey-red bg-survey-lred px-4 py-3.5 text-sm text-survey-red">
+          <p className="font-semibold">⛔ Langkah ini belum lengkap — isian wajib harus diisi dulu sebelum melanjutkan.</p>
+          <p className="mt-1">{stepInvalid[step]}</p>
+        </div>
+      )}
       {pendingReview && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3.5 text-sm text-amber-900">
           <p className="font-semibold">
-            ⚠️ Ada {pendingReview.length} isian yang masih kosong. Kirim tetap boleh — isian kosong akan
-            ditandai <b>"Belum dijawab"</b> pada laporan, tapi alangkah baiknya dilengkapi dulu.
+            ⚠️ Ada {pendingReview.length} isian yang masih kosong. Lengkapi dulu sebelum mengirim —
+            isian wajib harus terisi semua.
           </p>
           <ul className="mt-2.5 space-y-1">
             {pendingReview.map((m) => (
@@ -867,14 +924,6 @@ export function SurveyorNewSurvey() {
               className="rounded-lg bg-amber-600 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-amber-700"
             >
               ← Lengkapi dulu
-            </button>
-            <button
-              type="button"
-              onClick={() => void submitSurvey(true)}
-              disabled={submitting}
-              className="rounded-lg border border-amber-400 bg-white px-4 py-2 text-[13px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
-            >
-              {submitting ? 'Mengirim...' : '✓ Tetap kirim sekarang'}
             </button>
             <button
               type="button"
@@ -952,11 +1001,11 @@ export function SurveyorNewSurvey() {
             <TextField
               label="Nilai Pertanggungan / TSI (Rp)"
               required
-              value={tsi ? Number(tsi).toLocaleString('id-ID') : ''}
+              value={groupDigits(tsi)}
               onChange={(v) => setTsi(v.replace(/\D/g, ''))}
               inputMode="numeric"
               placeholder="0"
-              hint="Total Sum Insured dalam Rupiah"
+              hint="Total Sum Insured dalam Rupiah (pemisah ribuan koma)"
             />
           </div>
 
@@ -999,6 +1048,32 @@ export function SurveyorNewSurvey() {
               <SubHeading>Pertanyaan Khusus {spBlock.label}</SubHeading>
               {spBlock.tip && <TipBox tone="warn">{spBlock.tip}</TipBox>}
               <FieldGrid fields={spBlock.fields} values={special} onChange={setS} />
+              {showTbPhotos && (
+                <div className="mt-2 rounded-xl border-[1.5px] border-survey-g2 bg-survey-g1 p-4">
+                  <SubHeading>📷 Foto Checklist Gudang Tembakau (8.1–8.4)</SubHeading>
+                  <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {TB_PHOTO_FIELDS.map((field) => (
+                      <UploadField
+                        key={field.key}
+                        label={field.label}
+                        accept="image/*"
+                        multiple={false}
+                        hint="Foto akan tersimpan sebagai lampiran dengan penanda nomor butir."
+                        files={tbFotos[field.key]}
+                        onAdd={(files) =>
+                          setTbFotos((prev) => ({ ...prev, [field.key]: [...prev[field.key], ...files] }))
+                        }
+                        onRemove={(index) =>
+                          setTbFotos((prev) => ({
+                            ...prev,
+                            [field.key]: prev[field.key].filter((_, i) => i !== index),
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </SectionCard>
@@ -1019,6 +1094,7 @@ export function SurveyorNewSurvey() {
                 label={bucket.fieldLabel}
                 accept={bucket.accept}
                 hint={bucket.hint}
+                multiple={bucket.multiple}
                 files={uploads[bucket.key as UploadBucketKey]}
                 onAdd={(files) => addFiles(bucket.key as UploadBucketKey, files)}
                 onRemove={(index) => removeFile(bucket.key as UploadBucketKey, index)}
@@ -1103,12 +1179,13 @@ export function SurveyorNewSurvey() {
                       onChange={(e) => updateLossRow(row.id, { cause: e.target.value })}
                     />
                     <input
-                      type="number"
-                      min={0}
+                      type="text"
+                      inputMode="numeric"
                       className={FIELD_CLASS}
+                      title="Amount of Loss"
                       placeholder="Amount of Loss (Rp)"
-                      value={row.amount}
-                      onChange={(e) => updateLossRow(row.id, { amount: e.target.value })}
+                      value={groupDigits(row.amount)}
+                      onChange={(e) => updateLossRow(row.id, { amount: e.target.value.replace(/\D/g, '') })}
                     />
                     <button
                       type="button"
@@ -1274,7 +1351,7 @@ export function SurveyorNewSurvey() {
           <div className="rounded-xl bg-survey-g1 px-4 py-3 text-xs">
             <div className="flex flex-wrap gap-x-6 gap-y-1">
               <div>📂 <b>Kategori Risiko:</b> {occItem ? occItem.riskLabel : '— pilih dulu di langkah Occupancy —'}</div>
-              <div>💰 <b>TSI:</b> {tsi ? `Rp ${Number(tsi).toLocaleString('id-ID')}` : '— isi dulu di Info Umum —'}</div>
+              <div>💰 <b>TSI:</b> {tsi ? formatRp(tsi) : '— isi dulu di Info Umum —'}</div>
             </div>
           </div>
           <details className="rounded-lg border border-survey-g2 bg-survey-g1 px-3 py-2.5">
@@ -1326,12 +1403,18 @@ export function SurveyorNewSurvey() {
             )}
             <ChoiceGroup
               label="Hidran — Unit Boks / Pillar Hidran"
-              hint="(Bobot 30%)"
+              hint={
+                lockHidran
+                  ? '(Bobot 30%) — 🔒 "Ada & Fungsional" terkunci karena ada pertanyaan lanjutan yang dijawab Tidak / Tidak Tahu.'
+                  : '(Bobot 30%)'
+              }
               required
               value={gi.pHidran}
               onChange={(v) => setGI('pHidran', v as GradeInputs['pHidran'])}
               cols={3}
               options={P_HIDRAN_OPTIONS}
+              disabledValues={lockHidran ? ['good'] : undefined}
+              disabledTitle="Ada & Fungsional terkunci karena ada pertanyaan lanjutan yang dijawab Tidak / Tidak Tahu."
             />
             {hidranStatus.wajib && gi.pHidran === 'none' && (
               <div className="mt-2 rounded-lg border-[1.5px] border-survey-red bg-survey-lred px-3.5 py-2.5 text-[11px] font-semibold text-survey-red">
@@ -1350,12 +1433,18 @@ export function SurveyorNewSurvey() {
           <div>
             <ChoiceGroup
               label="Detektor Kebakaran Otomatis"
-              hint="(Bobot 25% — Smoke/Heat/Flame Detector)"
+              hint={
+                lockDetektor
+                  ? '(Bobot 25% — Smoke/Heat/Flame Detector) — 🔒 "Ada & Fungsional" terkunci karena ada pertanyaan lanjutan yang dijawab Tidak / Tidak Tahu.'
+                  : '(Bobot 25% — Smoke/Heat/Flame Detector)'
+              }
               required
               value={gi.pDetektor}
               onChange={(v) => setGI('pDetektor', v as GradeInputs['pDetektor'])}
               cols={3}
               options={P_COMPONENT_OPTIONS}
+              disabledValues={lockDetektor ? ['good'] : undefined}
+              disabledTitle="Ada & Fungsional terkunci karena ada pertanyaan lanjutan yang dijawab Tidak / Tidak Tahu."
             />
             {(gi.pDetektor === 'good' || gi.pDetektor === 'avg') && (
               <div className="mt-3 rounded-lg border-[1.5px] border-survey-g2 bg-survey-g1 p-4">
@@ -1369,12 +1458,18 @@ export function SurveyorNewSurvey() {
           <div>
             <ChoiceGroup
               label="Sprinkler"
-              hint="(Bobot 10%)"
+              hint={
+                lockSprinkler
+                  ? '(Bobot 10%) — 🔒 "Ada & Fungsional" terkunci karena ada pertanyaan lanjutan yang dijawab Tidak / Tidak Tahu.'
+                  : '(Bobot 10%)'
+              }
               required
               value={gi.pSprinkler}
               onChange={(v) => setGI('pSprinkler', v as GradeInputs['pSprinkler'])}
               cols={3}
               options={P_COMPONENT_OPTIONS}
+              disabledValues={lockSprinkler ? ['good'] : undefined}
+              disabledTitle="Ada & Fungsional terkunci karena ada pertanyaan lanjutan yang dijawab Tidak / Tidak Tahu."
             />
             {(gi.pSprinkler === 'good' || gi.pSprinkler === 'avg') && (
               <div className="mt-3 rounded-lg border-[1.5px] border-survey-g2 bg-survey-g1 p-4">
@@ -1687,7 +1782,7 @@ export function SurveyorNewSurvey() {
               <SummaryRow label="Breakdown Okupansi ASWATA" value={occItem ? `${occItem.code} — ${occItem.description}` : ''} />
               <SummaryRow label="Zona Gempa OJK" value={gempaZone ? `Zona ${gempaZone}` : ''} />
               <SummaryRow label="Jenis Usaha (khusus)" value={spBlock?.label} />
-              <SummaryRow label="TSI" value={tsi ? `Rp ${Number(tsi).toLocaleString('id-ID')}` : ''} />
+              <SummaryRow label="TSI" value={formatRp(tsi)} />
               <SummaryRow label="PIC di Lokasi" value={pic} />
               <SummaryRow label="Catatan Dokumen" value={upNotes} />
             </dl>

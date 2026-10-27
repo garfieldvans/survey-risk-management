@@ -28,18 +28,103 @@ export const HIDRAN_THRESHOLD: Record<string, { label: string; amount: number }>
 
 export const COMMERCIAL_RESIDENTIAL_TSI_THRESHOLD = 100e9;
 
-/** Cari item breakdown berdasarkan kode atau teks (case-insensitive). */
-export function searchOccBreakdown(query: string, limit = 30): OccBreakdownItem[] {
+/**
+ * Alias pencarian berkelompok — port 1:1 `OCC_SEARCH_GROUPS` pada prototipe.
+ * Menampilkan header grup (mis. "29313* — Shopping mall/center") beserta
+ * sub-okupansi anaknya meskipun teks anaknya tidak cocok dengan query.
+ */
+export interface OccSearchGroup {
+  code: string;
+  label: string;
+  terms: string[];
+  childCodes: string[];
+}
+
+export const OCC_SEARCH_GROUPS: OccSearchGroup[] = [
+  {
+    code: '29313*',
+    label: 'Shopping mall/center',
+    terms: ['shopping mall', 'shopping center', 'shopping centre', 'mall', 'pusat perbelanjaan'],
+    childCodes: ['29313A', '29313B'],
+  },
+];
+
+/** Alias istilah umum → kode okupansi — port `OCC_SEARCH_ALIASES` prototipe. */
+export const OCC_SEARCH_ALIASES: Record<string, string[]> = {
+  restoran: ['2945'],
+  restaurant: ['2945'],
+  'rumah sakit': ['2951'],
+  hospital: ['2951'],
+  'data center': ['29291'],
+  datacenter: ['29291'],
+  apartemen: ['2971', '2972', '2973', '2975'],
+  apartment: ['2971', '2972', '2973', '2975'],
+  perkantoran: ['2971', '2972', '2973', '2975'],
+  office: ['2971', '2972', '2973', '2975'],
+  hotel: ['29411', '29412'],
+};
+
+/** Baris hasil pencarian: header grup (mis. "29313* — Shopping mall/center") atau item. */
+export type OccResultRow =
+  | { kind: 'group'; code: string; label: string }
+  | { kind: 'item'; item: OccBreakdownItem };
+
+/**
+ * Pencarian breakdown okupansi dengan dukungan grup alias (seperti
+ * `searchOccCode` di prototipe): grup yang cocok dirender duluan beserta
+ * anaknya, lalu kecocokan biasa dengan kode alias diprioritaskan.
+ */
+export function searchOccBreakdownRows(query: string, limit = 30): OccResultRow[] {
   const q = query.trim().toLowerCase();
-  if (!q) return OCC_BREAKDOWN.slice(0, limit);
+  if (!q) return OCC_BREAKDOWN.slice(0, limit).map((item) => ({ kind: 'item' as const, item }));
+
+  const matchedGroups = OCC_SEARCH_GROUPS.filter((g) =>
+    [g.code, g.label, ...g.terms].some((v) => {
+      const s = String(v).toLowerCase();
+      return s.includes(q) || q.includes(s);
+    }),
+  );
+
+  const aliasCodes = new Set<string>();
+  matchedGroups.forEach((g) => g.childCodes.forEach((c) => aliasCodes.add(c)));
+  Object.entries(OCC_SEARCH_ALIASES).forEach(([term, codes]) => {
+    if (term.includes(q) || q.includes(term)) codes.forEach((c) => aliasCodes.add(c));
+  });
+
+  const groupedChildCodes = new Set(matchedGroups.flatMap((g) => g.childCodes));
   const starts: OccBreakdownItem[] = [];
   const contains: OccBreakdownItem[] = [];
   for (const item of OCC_BREAKDOWN) {
+    if (groupedChildCodes.has(String(item.code))) continue; // dirender di bawah header grup
     const hay = `${item.code} ${item.description} ${item.riskLabel}`.toLowerCase();
     const idx = hay.indexOf(q);
     if (idx === 0 || item.code.toLowerCase().startsWith(q)) starts.push(item);
     else if (idx > 0) contains.push(item);
-    if (starts.length >= limit) break;
   }
-  return [...starts, ...contains].slice(0, limit);
+  const ordered = [...starts, ...contains];
+  const aliased = ordered.filter((i) => aliasCodes.has(String(i.code)));
+  const rest = ordered.filter((i) => !aliasCodes.has(String(i.code)));
+
+  const rows: OccResultRow[] = [];
+  matchedGroups.forEach((g) => {
+    rows.push({ kind: 'group', code: g.code, label: g.label });
+    const byCode = new Map(OCC_BREAKDOWN.map((it) => [String(it.code), it]));
+    g.childCodes.forEach((code) => {
+      const item = byCode.get(code);
+      if (item) rows.push({ kind: 'item', item });
+    });
+  });
+  for (const item of [...aliased, ...rest]) {
+    if (rows.length >= limit + matchedGroups.length) break;
+    rows.push({ kind: 'item', item });
+  }
+  return rows;
+}
+
+/** Cari item breakdown berdasarkan kode atau teks (case-insensitive). */
+export function searchOccBreakdown(query: string, limit = 30): OccBreakdownItem[] {
+  return searchOccBreakdownRows(query, limit)
+    .filter((row): row is { kind: 'item'; item: OccBreakdownItem } => row.kind === 'item')
+    .map((row) => row.item)
+    .slice(0, limit);
 }

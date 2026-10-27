@@ -18,6 +18,10 @@ interface ChoiceGroupProps {
   cols?: 1 | 2 | 3 | 4;
   required?: boolean;
   hint?: string;
+  /** Opsi yang tidak bisa dipilih (mis. "Ada & Fungsional" terkunci — poin review #8). */
+  disabledValues?: string[];
+  /** Alasan penguncian, ditampilkan sebagai tooltip pada opsi terkunci. */
+  disabledTitle?: string;
 }
 
 const COLS_CLASS: Record<1 | 2 | 3 | 4, string> = {
@@ -36,6 +40,8 @@ export function ChoiceGroup({
   cols = 2,
   required,
   hint,
+  disabledValues,
+  disabledTitle,
 }: ChoiceGroupProps) {
   return (
     <div>
@@ -46,17 +52,25 @@ export function ChoiceGroup({
       <div className={`grid gap-2 ${COLS_CLASS[cols]}`} role="radiogroup" aria-label={label}>
         {options.map((option) => {
           const selected = value === option.value;
+          const locked = disabledValues?.includes(option.value) ?? false;
           return (
             <button
               key={option.value}
               type="button"
               role="radio"
               aria-checked={selected}
-              onClick={() => onChange(option.value)}
+              aria-disabled={locked}
+              disabled={locked}
+              title={locked ? disabledTitle : undefined}
+              onClick={() => {
+                if (!locked) onChange(option.value);
+              }}
               className={`flex items-start gap-2.5 rounded-lg border-[1.5px] px-3.5 py-2.5 text-left transition-colors ${
-                selected
-                  ? 'border-survey-navy bg-survey-llblue'
-                  : 'border-survey-g2 bg-white hover:border-survey-blue hover:bg-survey-llblue'
+                locked
+                  ? 'cursor-not-allowed border-survey-g2 bg-survey-g1 opacity-50'
+                  : selected
+                    ? 'border-survey-navy bg-survey-llblue'
+                    : 'border-survey-g2 bg-white hover:border-survey-blue hover:bg-survey-llblue'
               }`}
             >
               <span

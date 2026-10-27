@@ -6,6 +6,8 @@
  * AdminSurveyReview / AdminReports (render ringkasan jawaban).
  */
 
+import { DETECTOR_TYPE_OPTIONS, P_COVERAGE_OPTIONS, YA_TIDAK_OPTIONS } from './gradeOptions';
+
 /** Kondisi tampil-sembunyi field (port logika `toggleSub` / `showWhen` di prototipe). */
 export type ShowCond = {
   key: string;
@@ -484,6 +486,53 @@ export const OCC_BLOCKS: Record<string, { label: string; tip?: string; fields: F
     ],
   },
 };
+
+// ---------- field descriptor blok detail proteksi (revisi prototipe) ----------
+// Dipakai SurveyorNewSurvey (input) dan surveyReport (laporan naratif PDF).
+
+export const HIDRAN_DETAIL_FIELDS: FieldDef[] = [
+  { key: 'p_hidran_indoor', label: 'Jumlah unit indoor hydrant', type: 'text', required: true, placeholder: 'Contoh: 4', cols: 2 },
+  { key: 'p_hidran_outdoor', label: 'Jumlah unit outdoor hydrant', type: 'text', required: true, placeholder: 'Contoh: 2', cols: 2 },
+  { key: '_jh', type: 'heading', label: 'Pompa joki' },
+  { key: 'p_jockey_qty', label: 'Jumlah unit', type: 'text', required: true, placeholder: 'Contoh: 1', cols: 2 },
+  { key: 'p_jockey_cap', label: 'Kapasitas (GPM / Liter per Menit / m³/jam)', type: 'text', required: true, placeholder: 'Contoh: 500 GPM', cols: 2 },
+  { key: 'p_jockey_auto', label: 'Automatic start', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
+  { key: '_mh', type: 'heading', label: 'Pompa utama elektrik' },
+  { key: 'p_mainpump_qty', label: 'Jumlah unit', type: 'text', required: true, placeholder: 'Contoh: 2', cols: 2 },
+  { key: 'p_mainpump_cap', label: 'Kapasitas (GPM / Liter per Menit / m³/jam)', type: 'text', required: true, placeholder: 'Contoh: 1.000 GPM', cols: 2 },
+  { key: 'p_mainpump_auto', label: 'Automatic start', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
+  { key: '_dh', type: 'heading', label: 'Pompa cadangan diesel' },
+  { key: 'p_dieselpump_qty', label: 'Jumlah unit', type: 'text', required: true, placeholder: 'Contoh: 1', cols: 2 },
+  { key: 'p_dieselpump_cap', label: 'Kapasitas (GPM / Liter per Menit / m³/jam)', type: 'text', required: true, placeholder: 'Contoh: 1.000 GPM', cols: 2 },
+  { key: 'p_dieselpump_auto', label: 'Automatic start', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
+  { key: 'p_hidran_water_cap', label: 'Kapasitas penyimpanan air untuk hydrant (m³ atau Liter)', type: 'text', required: true, placeholder: 'Contoh: 50 m³', cols: 2 },
+];
+
+export const DETEKTOR_DETAIL_FIELDS: FieldDef[] = [
+  { key: 'p_det_normal', label: 'Apakah sistem detector kebakaran otomatis berfungsi secara normal?', type: 'select', required: true, options: YA_TIDAK_OPTIONS },
+  { key: 'p_det_jenis', label: 'Jenis detektor kebakaran', type: 'check', required: true, options: DETECTOR_TYPE_OPTIONS },
+  { key: 'p_det_coverage', label: 'Cakupan instalasi (dari total luas lantai)', type: 'select', required: true, options: P_COVERAGE_OPTIONS, cols: 2 },
+  { key: 'p_det_area', label: 'Mohon dijelaskan area cakupan', type: 'textarea', required: true, placeholder: 'Contoh: seluruh lantai gudang 1–3, koridor, ruang listrik' },
+];
+
+export const SPRINKLER_DETAIL_FIELDS: FieldDef[] = [
+  { key: 'p_spr_water_same', label: 'Suplai air sama dengan sistem hydrant?', type: 'select', required: true, options: YA_TIDAK_OPTIONS, cols: 2 },
+  { key: 'p_spr_water_detail', label: 'Jika tidak, mohon dijelaskan', type: 'textarea', required: true, showWhen: [{ key: 'p_spr_water_same', value: 'tidak' }], placeholder: 'Jelaskan sumber & kapasitas suplai air sprinkler yang terpisah...' },
+  { key: 'p_spr_coverage', label: 'Cakupan instalasi (dari total luas lantai)', type: 'select', required: true, options: P_COVERAGE_OPTIONS, cols: 2 },
+  { key: 'p_spr_area', label: 'Mohon dijelaskan area cakupan', type: 'textarea', required: true, placeholder: 'Contoh: seluruh area produksi dan penyimpanan' },
+];
+
+/** Opsi arah mata angin untuk baris jarak fasilitas (Exposure). */
+export const ARAH_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'utara', label: 'Utara' },
+  { value: 'timur_laut', label: 'Timur Laut' },
+  { value: 'timur', label: 'Timur' },
+  { value: 'tenggara', label: 'Tenggara' },
+  { value: 'selatan', label: 'Selatan' },
+  { value: 'barat_daya', label: 'Barat Daya' },
+  { value: 'barat', label: 'Barat' },
+  { value: 'barat_laut', label: 'Barat Laut' },
+];
 
 /** Konversi nilai mentah jadi label yang enak dibaca untuk ringkasan. */
 export function fieldValueLabel(field: FieldDef, raw: string): string {

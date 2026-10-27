@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { searchOccBreakdown, type OccBreakdownItem } from '../lib/occBreakdown';
+import { searchOccBreakdownRows, type OccBreakdownItem, type OccResultRow } from '../lib/occBreakdown';
 import { LABEL_CLASS } from './survey/tokens';
 import { Req } from './survey/SectionCard';
 
@@ -17,7 +17,7 @@ interface OccupationBreakdownSelectProps {
 export function OccupationBreakdownSelect({ value, onChange, required }: OccupationBreakdownSelectProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [results, setResults] = useState<OccBreakdownItem[]>(() => searchOccBreakdown('', 30));
+  const [results, setResults] = useState<OccResultRow[]>(() => searchOccBreakdownRows('', 30));
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // Tutup dropdown saat klik di luar (setara listener document di prototipe).
@@ -32,7 +32,7 @@ export function OccupationBreakdownSelect({ value, onChange, required }: Occupat
 
   function handleQuery(v: string) {
     setQuery(v);
-    setResults(searchOccBreakdown(v, 30));
+    setResults(searchOccBreakdownRows(v, 30));
     setOpen(true);
   }
 
@@ -65,18 +65,27 @@ export function OccupationBreakdownSelect({ value, onChange, required }: Occupat
             {results.length === 0 ? (
               <div className="px-3 py-2 text-xs text-survey-g3">Tidak ada okupansi yang cocok.</div>
             ) : (
-              results.map((item) => (
-                <button
-                  key={`${item.code}-${item.description.slice(0, 24)}`}
-                  type="button"
-                  onClick={() => pick(item)}
-                  className="block w-full border-b-[0.5px] border-survey-g2 px-3 py-2 text-left transition-colors last:border-0 hover:bg-survey-llblue"
-                >
-                  <span className="block text-[11px] font-bold text-survey-navy">{item.code}</span>
-                  <span className="my-0.5 block text-survey-dark">{item.description}</span>
-                  <span className="block text-[10px] text-survey-g3">{item.riskLabel}</span>
-                </button>
-              ))
+              results.map((row, index) =>
+                row.kind === 'group' ? (
+                  <div
+                    key={`${row.code}-${index}`}
+                    className="border-b border-survey-g2 bg-survey-g1 px-3 py-2 text-[11px] font-bold text-survey-navy"
+                  >
+                    {row.code} — {row.label}
+                  </div>
+                ) : (
+                  <button
+                    key={`${row.item.code}-${row.item.description.slice(0, 24)}-${index}`}
+                    type="button"
+                    onClick={() => pick(row.item)}
+                    className="block w-full border-b-[0.5px] border-survey-g2 px-3 py-2 text-left transition-colors last:border-0 hover:bg-survey-llblue"
+                  >
+                    <span className="block text-[11px] font-bold text-survey-navy">{row.item.code}</span>
+                    <span className="my-0.5 block text-survey-dark">{row.item.description}</span>
+                    <span className="block text-[10px] text-survey-g3">{row.item.riskLabel}</span>
+                  </button>
+                ),
+              )
             )}
           </div>
         )}
