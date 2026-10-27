@@ -64,6 +64,25 @@ export function missingRequiredFields(fields: FieldDef[], values: Record<string,
   return missing;
 }
 
+/**
+ * Field yang wajib terisi sebelum langkah boleh ditinggalkan: semua pilihan
+ * Ya/Tidak & select (dianggap penting — sama seperti validasi Survey Umum),
+ * ditambah field ber-flag `required` — mengikuti perilaku validasi navigasi
+ * prototipe (`getSectionValidationIssues`): isi dulu semua required, baru boleh
+ * lanjut ke langkah berikutnya.
+ */
+export function missingStepFields(fields: FieldDef[], values: Record<string, string>): string[] {
+  const missing: string[] = [];
+  for (const field of fields) {
+    if (field.type === 'heading' || field.type === 'notice') continue;
+    if (!isFieldVisible(field, values)) continue;
+    const important = field.type === 'yesno' || field.type === 'select';
+    if (!important && !field.required) continue;
+    if (!(values[field.key] ?? '').trim()) missing.push(field.label);
+  }
+  return missing;
+}
+
 // ============================================================
 // SURVEY UMUM (Section 1 prototipe — hanya grup A & B)
 // ============================================================
@@ -550,7 +569,7 @@ export function fieldValueLabel(field: FieldDef, raw: string): string {
   if (field.type === 'select') return field.options?.find((o) => o.value === v)?.label ?? v;
   if (field.type === 'number') {
     const n = Number(v);
-    return Number.isFinite(n) ? n.toLocaleString('id-ID') : v;
+    return Number.isFinite(n) ? n.toLocaleString('en-US') : v;
   }
   return v;
 }

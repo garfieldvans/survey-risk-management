@@ -77,7 +77,7 @@ export function AdminReports() {
     }
     if (str(extra.gempaZone)) ws.addRow(['Zona Gempa OJK', `Zona ${str(extra.gempaZone)}`]);
     if (str(extra.marketing)) ws.addRow(['Marketing / Cabang', str(extra.marketing)]);
-    if (typeof extra.tsi === 'number') ws.addRow(['Nilai Pertanggungan (TSI)', `Rp ${extra.tsi.toLocaleString('id-ID')}`]);
+    if (typeof extra.tsi === 'number') ws.addRow(['Nilai Pertanggungan (TSI)', `Rp ${extra.tsi.toLocaleString('en-US')}`]);
     if (str(extra.occupancyDesc)) ws.addRow(['Deskripsi Aktivitas Utama', str(extra.occupancyDesc)]);
     if (str(extra.uploadNotes)) ws.addRow(['Catatan Dokumen / Foto', str(extra.uploadNotes)]);
     ws.addRow(['Level 1 (Industri)', report.property.occupation?.level1 ?? '-']);
@@ -133,11 +133,11 @@ export function AdminReports() {
         ws.addRow(['Jumlah klaim 5 tahun terakhir', label]);
       }
       if (lossHistory.lhNilai && Number(lossHistory.lhNilai) > 0) {
-        ws.addRow(['Total nilai klaim', `Rp ${Number(lossHistory.lhNilai).toLocaleString('id-ID')}`]);
+        ws.addRow(['Total nilai klaim', `Rp ${Number(lossHistory.lhNilai).toLocaleString('en-US')}`]);
       }
       if (str(extra.lossRingkasan)) ws.addRow(['Ringkasan Kejadian & Tindak Lanjut', str(extra.lossRingkasan)]);
       lossRows.forEach((r) => {
-        const amount = r.amount ? `Rp ${Number(r.amount).toLocaleString('id-ID')}` : '';
+        const amount = r.amount ? `Rp ${Number(r.amount).toLocaleString('en-US')}` : '';
         ws.addRow([
           `Klaim: ${r.kategori || '-'}`,
           `${r.tanggal || '-'} | ${r.cause || '-'}${amount ? ` | ${amount}` : ''}`,

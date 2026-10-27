@@ -265,7 +265,7 @@ function groupAnswersBySection(answers: SurveyAnswer[]) {
 }
 
 function formatAnswerValue(a: SurveyAnswer): string {
-  if (a.question.answerType === 'NUMBER') return Number(a.value).toLocaleString('id-ID');
+  if (a.question.answerType === 'NUMBER') return Number(a.value).toLocaleString('en-US');
   return a.value;
 }
 

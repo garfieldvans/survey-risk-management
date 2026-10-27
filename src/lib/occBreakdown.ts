@@ -98,7 +98,11 @@ export function searchOccBreakdownRows(query: string, limit = 30): OccResultRow[
     if (groupedChildCodes.has(String(item.code))) continue; // dirender di bawah header grup
     const hay = `${item.code} ${item.description} ${item.riskLabel}`.toLowerCase();
     const idx = hay.indexOf(q);
-    if (idx === 0 || item.code.toLowerCase().startsWith(q)) starts.push(item);
+    // Kode hasil alias (mis. "rumah sakit" → 2951) ikut disertakan meski teks
+    // item tidak mengandung kueri — persis prototipe (filter || aliasCodes.has),
+    // dan diprioritaskan di atas kecocokan biasa.
+    if (aliasCodes.has(String(item.code))) starts.push(item);
+    else if (idx === 0 || item.code.toLowerCase().startsWith(q)) starts.push(item);
     else if (idx > 0) contains.push(item);
   }
   const ordered = [...starts, ...contains];

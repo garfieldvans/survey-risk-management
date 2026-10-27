@@ -41,7 +41,7 @@ function formatExtraSpecial(key: string, raw: string): string {
   if (map) return map[raw] ?? raw;
   if (NUMERIC_EXTRA_KEYS.has(key)) {
     const n = Number(raw);
-    return Number.isFinite(n) && raw !== '' ? n.toLocaleString('id-ID') : raw;
+    return Number.isFinite(n) && raw !== '' ? n.toLocaleString('en-US') : raw;
   }
   return raw;
 }
@@ -65,7 +65,7 @@ export function SurveyExtraDataCards({ extra }: { extra: Record<string, unknown>
     { label: 'Marketing / Cabang', value: str(extra?.marketing) },
     { label: 'PIC di Lokasi', value: str(extra?.pic) },
     { label: 'Pelaksana Survey', value: str(extra?.pelaksana) },
-    { label: 'Nilai Pertanggungan (TSI)', value: typeof extra?.tsi === 'number' ? `Rp ${extra.tsi.toLocaleString('id-ID')}` : '' },
+    { label: 'Nilai Pertanggungan (TSI)', value: typeof extra?.tsi === 'number' ? `Rp ${extra.tsi.toLocaleString('en-US')}` : '' },
     {
       label: 'Breakdown Okupansi ASWATA',
       value:
@@ -168,7 +168,7 @@ export function SurveyExtraDataCards({ extra }: { extra: Record<string, unknown>
             {lossHistory.lhNilai && Number(lossHistory.lhNilai) > 0 && (
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-500">Total nilai klaim</dt>
-                <dd className="font-medium text-slate-800">Rp {Number(lossHistory.lhNilai).toLocaleString('id-ID')}</dd>
+                <dd className="font-medium text-slate-800">Rp {Number(lossHistory.lhNilai).toLocaleString('en-US')}</dd>
               </div>
             )}
             {str(extra?.lossRingkasan) && (
@@ -196,7 +196,7 @@ export function SurveyExtraDataCards({ extra }: { extra: Record<string, unknown>
                       <td className="border border-slate-200 px-2 py-1.5">{row.tanggal ?? ''}</td>
                       <td className="border border-slate-200 px-2 py-1.5">{row.cause ?? ''}</td>
                       <td className="border border-slate-200 px-2 py-1.5 text-right">
-                        {row.amount ? `Rp ${Number(row.amount).toLocaleString('id-ID')}` : ''}
+                        {row.amount ? `Rp ${Number(row.amount).toLocaleString('en-US')}` : ''}
                       </td>
                     </tr>
                   ))}

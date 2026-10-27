@@ -14,10 +14,13 @@ interface OccupationBreakdownSelectProps {
  * `occ-dropdown` di prototipe HTML). Memilih item otomatis mengisi Kategori
  * Hazard Risk (skor 8 / 6 / 4) untuk langkah Occupancy.
  */
+/** Jumlah hasil maksimal yang ditampilkan — sama dengan prototipe (60). */
+const RESULTS_LIMIT = 60;
+
 export function OccupationBreakdownSelect({ value, onChange, required }: OccupationBreakdownSelectProps) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [results, setResults] = useState<OccResultRow[]>(() => searchOccBreakdownRows('', 30));
+  const [results, setResults] = useState<OccResultRow[]>(() => searchOccBreakdownRows('', RESULTS_LIMIT));
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // Tutup dropdown saat klik di luar (setara listener document di prototipe).
@@ -32,7 +35,7 @@ export function OccupationBreakdownSelect({ value, onChange, required }: Occupat
 
   function handleQuery(v: string) {
     setQuery(v);
-    setResults(searchOccBreakdownRows(v, 30));
+    setResults(searchOccBreakdownRows(v, RESULTS_LIMIT));
     setOpen(true);
   }
 
@@ -86,6 +89,11 @@ export function OccupationBreakdownSelect({ value, onChange, required }: Occupat
                   </button>
                 ),
               )
+            )}
+            {results.length >= RESULTS_LIMIT && (
+              <div className="bg-survey-g1 px-3 py-2 text-[10px] text-survey-g3">
+                Menampilkan {RESULTS_LIMIT} hasil pertama — ketik lebih spesifik untuk mempersempit.
+              </div>
             )}
           </div>
         )}

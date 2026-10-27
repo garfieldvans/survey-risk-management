@@ -29,6 +29,7 @@ import {
   OCC_BLOCKS,
   SPRINKLER_DETAIL_FIELDS,
   missingRequiredFields,
+  missingStepFields,
 } from '../lib/surveyForm';
 import {
   C_KELAS_OPTIONS,
@@ -334,6 +335,9 @@ export function SurveyorNewSurvey() {
   const gempaZone = KAB_KOTA_ZONE_MAP[kota.trim()] ?? '';
   // Blok foto tembakau 8.1–8.4 tampil saat okupansi Gudang + komoditas Tembakau.
   const showTbPhotos = spJenis === 'gudang' && (special.gd_komoditas ?? '') === 'tembakau';
+  // Bucket MSDS hanya untuk okupansi Pabrik & Gudang — okupansi lain tidak perlu
+  // (poin review #7, sesuai label "UNTUK PABRIK DAN GUDANG KIMIA").
+  const showMsds = spJenis === 'pabrik' || spJenis === 'gudang';
   const effGempa = gempaZone ? (gempaZone === '5' ? 'marg' : 'avg') : '';
   const floodComplete = NH_FLOOD_CRITERIA.every((c) => (nhFlood[c.key] ?? '') !== '');
   const effBanjir = floodComplete
@@ -408,17 +412,33 @@ export function SurveyorNewSurvey() {
     if (!/^\d{5}$/.test(kodePos.trim())) miss0.push('Kode Pos (5 digit)');
     if (!gps.trim()) miss0.push('Koordinat GPS');
     if (!tsi.trim()) miss0.push('Nilai Pertanggungan / TSI');
+    if (!surveyDate.trim()) miss0.push('Tanggal Survey');
+    if (!pelaksana.trim()) miss0.push('Pelaksana Survey');
     if (miss0.length > 0) errors[0] = `Wajib diisi: ${miss0.join(', ')}.`;
-    // Step 1 — Survey Umum: pertanyaan penting (ya/tidak & pilihan) grup A–F
+    // Step 1 — Survey Umum: semua pilihan Ya/Tidak & select + field required
     for (const g of GU_GROUPS) {
-      for (const f of g.fields) {
-        if ((f.type === 'yesno' || f.type === 'select') && !(general[f.key] ?? '').trim()) {
-          errors[1] = 'Masih ada pertanyaan penting Survey Umum yang belum dijawab.';
-        }
+      const missGu = missingStepFields(g.fields, general);
+      if (missGu.length > 0) {
+        errors[1] = `Masih ada isian wajib Survey Umum yang belum diisi: ${missGu.slice(0, 6).join(', ')}${
+          missGu.length > 6 ? `, +${missGu.length - 6} lainnya` : ''
+        }.`;
       }
     }
     // Step 2 — Khusus Okupansi
-    if (!spJenis) errors[2] = 'Pilih jenis usaha / okupansi spesifik terlebih dahulu.';
+    if (!spJenis) {
+      errors[2] = 'Pilih jenis usaha / okupansi spesifik terlebih dahulu.';
+    } else {
+      // Semua pilihan penting (Ya/Tidak & select) + field required pada blok
+      // okupansi terpilih wajib terisi sebelum lanjut — port validasi navigasi
+      // prototipe, bukan hanya saat submit.
+      const spFields = OCC_BLOCKS[spJenis]?.fields ?? [];
+      const missSp = missingStepFields(spFields, special);
+      if (missSp.length > 0) {
+        errors[2] = `Masih ada isian wajib yang belum diisi: ${missSp.slice(0, 6).join(', ')}${
+          missSp.length > 6 ? `, +${missSp.length - 6} lainnya` : ''
+        }.`;
+      }
+    }
     // Step 4 — Management: 5 aspek inti Y/N wajib semua
     if (M_ASPECT_IDS.some((id) => (eff.mAnswers?.[id] ?? '') === '')) {
       errors[IDX.management] = 'Jawab seluruh 5 aspek Management (Ya / Tidak).';
@@ -461,7 +481,7 @@ export function SurveyorNewSurvey() {
     }
     return errors;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tertanggung, alamat, general, spJenis, gi, occupancyDesc, kota, gempaZone, kodePos, gps, tsi, nhFlood, occItem, special]);
+  }, [tertanggung, alamat, general, spJenis, gi, occupancyDesc, kota, gempaZone, kodePos, gps, tsi, nhFlood, occItem, special, surveyDate, pelaksana]);
 
   // ===================== Draft: simpan / pulihkan =====================
   const draftIdRef = useRef<string | null>(draftParam);
@@ -1151,7 +1171,7 @@ export function SurveyorNewSurvey() {
             📌 Prototipe ini menampilkan pratinjau file di browser. Untuk versi produksi, file perlu diunggah ke
             server/cloud storage — ini bagian yang perlu didiskusikan arsitekturnya dengan tim IT.
           </TipBox>
-          {UPLOAD_BUCKETS.map((bucket, i) => (
+          {UPLOAD_BUCKETS.filter((bucket) => bucket.key !== 'msds' || showMsds).map((bucket, i) => (
             <div key={bucket.key} className="space-y-2">
               {i > 0 && <Divider />}
               <SubHeading>{bucket.label}</SubHeading>
