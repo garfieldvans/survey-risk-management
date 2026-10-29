@@ -9,11 +9,11 @@ import { formatDate } from '../lib/format';
 
 const STATUS_LABELS: Record<SurveyStatus, string> = {
   ONBOARD: 'On Board',
-  REVIEW: 'Review',
-  GRADING: 'Grading',
-  DONE: 'Done',
-  CLOSED: 'Closed',
+  REVIEW: 'Under Review',
+  REQUEST_REVISE: 'Request Revisi',
+  REVISED: 'Revised',
   REJECTED: 'Rejected',
+  APPROVED: 'Approved',
 };
 
 export function AdminSurveys() {

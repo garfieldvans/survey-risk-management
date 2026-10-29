@@ -1,12 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Survey, SurveyDraft } from '../api/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { Spinner } from '../components/Spinner';
-import { formatDate, formatDateTime } from '../lib/format';
+import { errorMessage, formatDate, formatDateTime } from '../lib/format';
+
+/** Jumlah baris draft yang tampil sebelum tombol "Show more". */
+const DRAFT_PREVIEW_COUNT = 5;
 
 export function SurveyorSurveys() {
+  const queryClient = useQueryClient();
+  const [showAllDrafts, setShowAllDrafts] = useState(false);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState('');
+
   const { data, isLoading } = useQuery({
     queryKey: ['surveys'],
     queryFn: async () => {
@@ -25,10 +34,25 @@ export function SurveyorSurveys() {
     },
   });
 
+  async function handleDeleteDraft(id: string) {
+    if (!window.confirm('Hapus draft ini? Tindakan ini tidak bisa dibatalkan.')) return;
+    setDeletingDraftId(id);
+    setDraftError('');
+    try {
+      await api.delete(`/surveys/drafts/${id}`);
+      await queryClient.invalidateQueries({ queryKey: ['survey-drafts'] });
+    } catch (err) {
+      setDraftError(errorMessage(err));
+    } finally {
+      setDeletingDraftId(null);
+    }
+  }
+
   if (isLoading) return <Spinner />;
 
   const surveys = data ?? [];
   const draftList = drafts ?? [];
+  const visibleDrafts = showAllDrafts ? draftList : draftList.slice(0, DRAFT_PREVIEW_COUNT);
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-6 pb-16 sm:px-6">
@@ -46,7 +70,7 @@ export function SurveyorSurveys() {
             <p className="text-xs text-slate-400">Draft dihapus otomatis 30 hari setelah terakhir disimpan</p>
           </div>
           <div className="space-y-2">
-            {draftList.map((d) => {
+            {visibleDrafts.map((d) => {
               const info = d.data?.info ?? {};
               const name = info.tertanggung?.trim() || '(nama tertanggung belum diisi)';
               const done = d.data?.progress?.done ?? 0;
@@ -77,13 +101,40 @@ export function SurveyorSurveys() {
                       )}
                     </div>
                   </div>
-                  <Link to={`/surveys/new?draft=${d.id}`} className="btn-primary shrink-0">
-                    Lanjutkan →
-                  </Link>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Link to={`/surveys/new?draft=${d.id}`} className="btn-primary">
+                      Lanjutkan →
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteDraft(d.id)}
+                      disabled={deletingDraftId === d.id}
+                      className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Hapus draft"
+                    >
+                      {deletingDraftId === d.id ? '...' : '🗑'}
+                    </button>
+                  </div>
                 </div>
               );
             })}
           </div>
+
+          {draftError && (
+            <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{draftError}</p>
+          )}
+
+          {draftList.length > DRAFT_PREVIEW_COUNT && (
+            <button
+              type="button"
+              onClick={() => setShowAllDrafts((v) => !v)}
+              className="mt-2 text-sm font-medium text-brand-600 hover:underline"
+            >
+              {showAllDrafts
+                ? 'Show less'
+                : `Show more (${draftList.length - DRAFT_PREVIEW_COUNT} lagi)`}
+            </button>
+          )}
         </div>
       )}
 

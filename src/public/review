@@ -1,0 +1,46 @@
+flow bisnis:
+
+- terdapat 2 akses dan site. 1.surveyor (surveyor), 2.administrator (admin dashboard)
+
+fungsi dan role: 
+ - surveyor: 
+  + surveyor bertugas langsung kelapangan dan mengisi halaman survey baru sesuai ketentuan form hingga submit new survey.
+  + surveyor bisa melihat detail hasil survey yang sudah di submit di halaman survey saya.
+  + surveyor bisa simpan survey sebagai draft dan bisa di edit kembali
+  + surveyor bisa mengubah survey jika ada request revisi dari administrator
+  + survey dapat download hasil survey dan hasil grading sesuai format download
+
+- administrator:
+  + admin bertugas mereview hasil survey
+  + hasil survey akan muncul di halaman antrian survey dengan berbagai status
+  + admin dapat memilih survey dengan status onboard/revised untuk di review, survey status pindah ke under review (atau semacamnya yang lebih tepat), 
+  + admin bisa request revisi terhadap survey dengan status onboard/revised, dan dapat melakukan request berkali kali, status p
+  + admin dapat melakukan reject terhadap suatu survey dan survey status pindah ke rejected
+  + admin dapat melakukan approve terhadap suatu survey dan survey status pindah ke approved
+  + admin dapat mendownload hasil survey dan grading di halaman detail, 
+  + admin juga dapat menghapus survey dengan survey status reject, sisanya tidak ada tombol hapus.
+
+tambahan sistem: 
+- survey status:
+  + on board (new survey)
+  + on review ( survey di review admin )
+  + request revise (request revisi)
+  + revised (surveyor submit revisian)
+  + rejected (admin tolak hasil survey)
+  + approved (admin approve survey)
+
+- draft
+  + draft bisa di hapus sebelum 30 hari (expired), dan ada tombol delete
+  + draft tampil sebagai list max 3 atau 5 baris, sisanya show more
+
+
+perubahan kecil dari yg existing:
+- halaman reports
+  + halaman report tampilkan list saja tanpa ada download, list reports berisi survey dengan status approved dan rejects saja
+  + ada tombol detail yg akan redirect ke halaman report details (untuk saat ini kosongkan saja)
+  
+- download 
+  + download pindah ke halaman detail survey bukan ke laporan/reports atau buat halaman tersendiri agar ada tampilan preview seperti di halaman reports
+  + download hasil survey dan grading harus sama untuk halaman surveyor dan admin. (surveyor: halaman survey hasil, admin: halaman reports)
+  + untuk admin hapus exportxls, ganti dengan poin sebelumnya.
+  + preview yang di halaman reports juga samakan dengan poin sebelumnya

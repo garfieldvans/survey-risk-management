@@ -8,20 +8,20 @@ import { labelOfCategory } from '../shared';
 
 const STATUS_LABELS: Record<string, string> = {
   ONBOARD: 'On Board',
-  REVIEW: 'Review',
-  GRADING: 'Grading',
-  DONE: 'Done',
-  CLOSED: 'Closed',
+  REVIEW: 'Under Review',
+  REQUEST_REVISE: 'Request Revisi',
+  REVISED: 'Revised',
   REJECTED: 'Rejected',
+  APPROVED: 'Approved',
 };
 
 const STATUS_COLORS: Record<string, string> = {
   ONBOARD: 'border-blue-500 bg-blue-50',
   REVIEW: 'border-amber-500 bg-amber-50',
-  GRADING: 'border-purple-500 bg-purple-50',
-  DONE: 'border-emerald-500 bg-emerald-50',
-  CLOSED: 'border-slate-400 bg-slate-50',
+  REQUEST_REVISE: 'border-orange-500 bg-orange-50',
+  REVISED: 'border-cyan-500 bg-cyan-50',
   REJECTED: 'border-red-500 bg-red-50',
+  APPROVED: 'border-emerald-500 bg-emerald-50',
 };
 
 const CATEGORY_BADGE: Record<string, string> = {
@@ -61,7 +61,7 @@ export function AdminDashboard() {
           to="/admin/reports"
           className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
         >
-          ⬇ Export Report
+          📋 Laporan
         </Link>
       </div>
 

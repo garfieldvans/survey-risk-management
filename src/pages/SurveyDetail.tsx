@@ -9,6 +9,13 @@ import { Spinner } from '../components/Spinner';
 import { SurveyExtraDataCards } from '../components/SurveyExtraDataCards';
 import { useAuth } from '../hooks/useAuth';
 import { errorMessage, formatBytes, formatDateTime } from '../lib/format';
+import {
+  buildRiskGradingHtml,
+  buildSurveyReportHtml,
+  printGeneratedDoc,
+  reportFileSuffix,
+  surveyToReportInput,
+} from '../lib/surveyReport';
 
 const CATEGORY_BADGE: Record<string, string> = {
   POOR: 'bg-red-100 text-red-700',
@@ -53,6 +60,7 @@ export function SurveyDetail() {
   });
 
   const answerSections = useMemo(() => groupAnswersBySection(data?.answers ?? []), [data]);
+  const reportInput = useMemo(() => (data ? surveyToReportInput(data) : null), [data]);
 
   if (isLoading) return <Spinner />;
   if (!data) return <div className="card">Survei tidak ditemukan.</div>;
@@ -72,17 +80,54 @@ export function SurveyDetail() {
           <p className="text-sm text-slate-500">{property.address}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => navigate(editHref())}
-            title="Edit survei"
-          >
-            ✏️ Edit
-          </button>
+          {(isAdmin || data.status === 'REQUEST_REVISE') && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => navigate(editHref())}
+              title="Edit survei"
+            >
+              ✏️ Edit
+            </button>
+          )}
           <StatusBadge status={data.status} />
         </div>
       </div>
+
+      {/* Download hasil survey & grading — format sama untuk surveyor & admin */}
+      {reportInput && (
+        <div className="card">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Download Hasil Survey & Grading
+          </h3>
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              className="rounded-lg bg-survey-navy px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-survey-navy2"
+              onClick={() =>
+                printGeneratedDoc(
+                  buildSurveyReportHtml(reportInput),
+                  `Laporan_Survey_${reportFileSuffix(reportInput.info.tertanggung)}`,
+                )
+              }
+            >
+              📕 Unduh Survey Report (PDF)
+            </button>
+            <button
+              type="button"
+              className="rounded-lg bg-survey-navy px-5 py-3 text-[13px] font-semibold text-white transition-colors hover:bg-survey-navy2"
+              onClick={() =>
+                printGeneratedDoc(
+                  buildRiskGradingHtml(reportInput),
+                  `Risk_Grading_${reportFileSuffix(reportInput.info.tertanggung)}`,
+                )
+              }
+            >
+              📊 Unduh Risk Grading (PDF)
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Left: details */}
@@ -266,20 +311,24 @@ export function SurveyDetail() {
               <button
                 type="button"
                 className="btn-secondary mt-2 w-full"
-                onClick={() => navigate(`/admin/reports?surveyId=${id}`)}
+                onClick={() => navigate(`/admin/reports/${id}`)}
               >
                 Lihat Laporan
               </button>
-              <button
-                type="button"
-                className="mt-2 w-full rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void handleDelete(property.name)}
-                disabled={deleting}
-              >
-                {deleting ? 'Menghapus...' : '🗑 Hapus Survei'}
-              </button>
-              {deleteError && (
-                <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{deleteError}</p>
+              {data.status === 'REJECTED' && (
+                <>
+                  <button
+                    type="button"
+                    className="mt-2 w-full rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => void handleDelete(property.name)}
+                    disabled={deleting}
+                  >
+                    {deleting ? 'Menghapus...' : '🗑 Hapus Survei'}
+                  </button>
+                  {deleteError && (
+                    <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{deleteError}</p>
+                  )}
+                </>
               )}
             </div>
           )}

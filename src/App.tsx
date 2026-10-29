@@ -14,6 +14,7 @@ import { AdminSurveyReview } from './pages/AdminSurveyReview';
 import { AdminOccupations } from './pages/AdminOccupations';
 import { AdminQuestions } from './pages/AdminQuestions';
 import { AdminReports } from './pages/AdminReports';
+import { AdminReportDetail } from './pages/AdminReportDetail';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,6 +73,7 @@ export function App() {
               <Route path="/admin/occupations" element={<AdminOccupations />} />
               <Route path="/admin/questions" element={<AdminQuestions />} />
               <Route path="/admin/reports" element={<AdminReports />} />
+              <Route path="/admin/reports/:id" element={<AdminReportDetail />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

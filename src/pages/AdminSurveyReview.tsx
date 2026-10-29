@@ -70,8 +70,8 @@ export function AdminSurveyReview() {
   async function submitGrade() {
     setBusy('grade');
     setError('');
-    if (status !== 'GRADING') {
-      setError('Survei harus dalam status GRADING dulu sebelum diberi grade');
+    if (status !== 'REVIEW') {
+      setError('Survei harus dalam status REVIEW dulu sebelum diberi grade');
       setBusy(null);
       return;
     }
@@ -90,7 +90,7 @@ export function AdminSurveyReview() {
     }
   }
 
-  const statusOrder = ['ONBOARD', 'REVIEW', 'GRADING', 'DONE'];
+  const statusOrder = ['ONBOARD', 'REVIEW', 'REQUEST_REVISE', 'REVISED', 'REJECTED', 'APPROVED'];
 
   return (
     <div className="space-y-6">
@@ -253,10 +253,10 @@ export function AdminSurveyReview() {
               type="button"
               className="btn-primary"
               onClick={submitGrade}
-              disabled={busy !== null || status !== 'GRADING'}
-              title={status !== 'GRADING' ? 'Pindahkan status ke GRADING terlebih dahulu' : ''}
+              disabled={busy !== null || status !== 'REVIEW'}
+              title={status !== 'REVIEW' ? 'Mulai review (status REVIEW) terlebih dahulu' : ''}
             >
-              {busy === 'grade' ? 'Menyimpan...' : 'Submit Grade → DONE'}
+              {busy === 'grade' ? 'Menyimpan...' : 'Submit Grade → Approve'}
             </button>
           )}
         </div>
@@ -265,47 +265,56 @@ export function AdminSurveyReview() {
       {/* Status transition */}
       <div className="card">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Transisi Status</h3>
-        <div className="mb-3 flex items-center gap-1 text-xs">
-          {statusOrder.map((s, i) => (
-            <span key={s} className="flex items-center gap-1">
-              <span className={`rounded-full px-2 py-0.5 font-semibold ${s === status ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                {s}
-              </span>
-              {i < statusOrder.length - 1 && <span className="text-slate-300">→</span>}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
+          {statusOrder.map((s) => (
+            <span
+              key={s}
+              className={`rounded-full px-2 py-0.5 font-semibold ${s === status ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500'}`}
+            >
+              {s.replace('_', ' ')}
             </span>
           ))}
-          <span className="ml-2">(status saat ini: <strong>{status}</strong>)</span>
+          <span className="ml-1">(status saat ini: <strong>{status}</strong>)</span>
         </div>
+
+        {/* Aksi review — hanya untuk status yang bisa ditindaklanjuti admin */}
         <div className="flex flex-wrap gap-2">
-          {status === 'ONBOARD' && (
+          {(status === 'ONBOARD' || status === 'REVISED') && (
             <button type="button" className="btn-primary" onClick={() => transition('REVIEW')} disabled={busy !== null}>
-              {busy === 'REVIEW' ? 'Memproses...' : 'Terima → Review'}
+              {busy === 'REVIEW' ? 'Memproses...' : '🔍 Mulai Review'}
             </button>
           )}
-          {status === 'REVIEW' && (
-            <>
-              <button type="button" className="btn-primary" onClick={() => transition('GRADING')} disabled={busy !== null}>
-                {busy === 'GRADING' ? 'Memproses...' : 'Lanjut → Grading'}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => transition('CLOSED')} disabled={busy !== null}>
-                Tutup (Closed)
-              </button>
-              <button type="button" className="btn-danger" onClick={() => transition('REJECTED')} disabled={busy !== null}>
-                Tolak (Rejected)
-              </button>
-            </>
+
+          {(status === 'ONBOARD' || status === 'REVISED' || status === 'REVIEW') && (
+            <button type="button" className="btn-secondary" onClick={() => transition('REQUEST_REVISE')} disabled={busy !== null}>
+              {busy === 'REQUEST_REVISE' ? 'Memproses...' : '↩️ Request Revisi'}
+            </button>
           )}
-          {status === 'GRADING' && (
-            <>
-              <button type="button" className="btn-secondary" onClick={() => transition('CLOSED')} disabled={busy !== null}>
-                Tutup (Closed)
-              </button>
-              <button type="button" className="btn-danger" onClick={() => transition('REJECTED')} disabled={busy !== null}>
-                Tolak (Rejected)
-              </button>
-            </>
+
+          {(status === 'ONBOARD' || status === 'REVISED' || status === 'REVIEW') && (
+            <button type="button" className="btn-primary" onClick={() => transition('APPROVED')} disabled={busy !== null}>
+              {busy === 'APPROVED' ? 'Memproses...' : '✓ Approve'}
+            </button>
+          )}
+
+          {(status === 'ONBOARD' || status === 'REVISED' || status === 'REVIEW') && (
+            <button type="button" className="btn-danger" onClick={() => transition('REJECTED')} disabled={busy !== null}>
+              {busy === 'REJECTED' ? 'Memproses...' : '✕ Reject'}
+            </button>
           )}
         </div>
+
+        {status === 'REQUEST_REVISE' && (
+          <p className="mt-3 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-700">
+            ⏳ Survei sedang menunggu surveyor mengirim revisian. Setelah disubmit, status menjadi REVISED dan kembali ke antrean review.
+          </p>
+        )}
+        {status === 'APPROVED' && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">✅ Survei telah di-approve.</p>
+        )}
+        {status === 'REJECTED' && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">🗑 Survei di-reject — dapat dihapus dari halaman detail.</p>
+        )}
       </div>
 
       <button type="button" onClick={() => navigate('/admin/surveys')} className="btn-secondary">

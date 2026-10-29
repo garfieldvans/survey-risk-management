@@ -6,7 +6,8 @@
  * (SURVEY_HTML_B64, revisi terbaru) — poin review #9: hasil unduhan harus
  * menggambarkan isi form lengkap, baik isian biasa maupun catatan/essay.
  */
-import { bandLabelOfScore, type GradeResult } from '../shared';
+import { bandLabelOfScore, computeGradeScores, type GradeInputs, type GradeResult } from '../shared';
+import type { Survey } from '../api/types';
 import { GRADE_SECTION_META, GRADE_SECTION_ORDER } from './gradeSections';
 import {
   ARAH_OPTIONS,
@@ -391,4 +392,137 @@ export function printGeneratedDoc(doc: string, fname: string): void {
       document.title = oldTitle;
     }, 1500);
   }, 300);
+}
+
+// ---------------- konversi Survey (API) → SurveyReportInput ----------------
+
+/**
+ * Susun input laporan dari survey tersimpan (property.extraData) supaya halaman
+ * detail — baik surveyor maupun admin — bisa mengunduh Survey Report & Risk
+ * Grading dengan format yang sama persis dengan step "Hasil" di wizard.
+ */
+const EMPTY_GRADE_INPUTS: GradeInputs = {
+  mAnswers: { m1: '', m2: '', m3: '', m4: '', m7: '' },
+  mChecklist: [],
+  mKlaim: '',
+  mImprovement: '',
+  mRekomendasi: '',
+  cKelas: '',
+  cSandwich: '',
+  cAcp: '',
+  oHazard: '',
+  pApar: '',
+  pHidran: '',
+  pDetektor: '',
+  pSprinkler: '',
+  pDamkar: '',
+  exKondisi: '',
+  nhGempa: '',
+  nhBanjir: '',
+  nhPetir: '',
+  lePemisah: '',
+  leJmlBangunan: '',
+  tsi: 0,
+  cLantai: 0,
+  spJenis: '',
+  oHazardCat: '',
+};
+
+export function surveyToReportInput(survey: Survey): SurveyReportInput {
+  const ex = (survey.property.extraData ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof ex[k] === 'string' ? (ex[k] as string).trim() : '');
+  const num = (k: string) => (typeof ex[k] === 'number' ? String(ex[k]) : '');
+  const rec = (k: string) =>
+    ex[k] && typeof ex[k] === 'object' ? (ex[k] as Record<string, string>) : {};
+
+  // Okupasi breakdown ASWATA
+  const occRaw = (ex.occBreakdown ?? null) as Record<string, unknown> | null;
+  const occItem =
+    occRaw && typeof occRaw.code === 'string'
+      ? {
+          code: occRaw.code,
+          description: String(occRaw.description ?? ''),
+          riskKey: String(occRaw.riskKey ?? ''),
+          riskLabel: String(occRaw.riskLabel ?? ''),
+          score: Number(occRaw.score ?? 0),
+          rating: String(occRaw.rating ?? ''),
+          sourceSheet: '',
+        }
+      : null;
+
+  // Input penilaian tersimpan (gradeInputs = effInputs dari wizard, sudah
+  // termasuk field turunan seperti oHazard/nhGempa/tsi).
+  const gi = { ...EMPTY_GRADE_INPUTS, ...(ex.gradeInputs as Partial<GradeInputs> | null) };
+  const result = computeGradeScores(gi);
+
+  const lossRows = (Array.isArray(ex.lossRows)
+    ? (ex.lossRows as Array<Record<string, string>>)
+    : []
+  ).map((r) => ({
+    kategori: r.kategori ?? '',
+    tanggal: r.tanggal ?? '',
+    cause: r.cause ?? '',
+    amount: r.amount ?? '',
+  }));
+
+  const facilities = (Array.isArray(ex.facilities)
+    ? (ex.facilities as Array<Record<string, string>>)
+    : []
+  ).map((r) => ({ nama: r.nama ?? '', arah: r.arah ?? '', jarak: r.jarak ?? '' }));
+
+  // notes = "Deskripsi aktivitas utama: …\n\n<catatan akhir>" (lihat submitSurvey)
+  let finalNotes = survey.notes ?? '';
+  const descPrefix = `Deskripsi aktivitas utama: ${str('occupancyDesc')}`;
+  if (str('occupancyDesc') && finalNotes.startsWith(descPrefix)) {
+    finalNotes = finalNotes.slice(descPrefix.length).replace(/^\n+/, '');
+  }
+
+  const info: SurveyReportInput['info'] = {
+    tertanggung: survey.property.name,
+    merk: str('merk'),
+    alamat: survey.property.address,
+    kota: str('kota'),
+    kodePos: str('kodePos'),
+    gps: str('gps'),
+    surveyDate: (survey.surveyDate ?? survey.createdAt).slice(0, 10),
+    pelaksana: str('pelaksana'),
+    marketing: str('marketing'),
+    tsi: num('tsi'),
+    pic: str('pic'),
+  };
+
+  return {
+    info,
+    general: rec('general'),
+    spJenis: typeof ex.jenisOkupansi === 'string' ? ex.jenisOkupansi : '',
+    special: rec('special'),
+    upNotes: str('uploadNotes'),
+    uploadNames: (survey.attachments ?? []).map((a) => a.fileName),
+    mAnswers: gi.mAnswers,
+    mKlaim: gi.mKlaim,
+    mImprovement: gi.mImprovement,
+    mRekomendasi: gi.mRekomendasi,
+    cKelas: gi.cKelas,
+    cSandwich: gi.cSandwich,
+    cAcp: gi.cAcp,
+    pApar: gi.pApar,
+    pHidran: gi.pHidran,
+    pDetektor: gi.pDetektor,
+    pSprinkler: gi.pSprinkler,
+    pDamkar: gi.pDamkar,
+    exKondisi: gi.exKondisi,
+    nhPetir: gi.nhPetir,
+    lePemisah: gi.lePemisah,
+    leJmlBangunan: gi.leJmlBangunan,
+    gradeNotes: rec('gradeNotes'),
+    lossRows,
+    claimRingkasan: str('lossRingkasan'),
+    occItem,
+    occupancyDesc: str('occupancyDesc'),
+    facilities,
+    nhFlood: rec('nhFlood'),
+    finalNotes,
+    gempaZone: str('gempaZone'),
+    result,
+  };
 }
