@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { bandLabelOfScore, labelOfCategory } from '../shared';
@@ -8,7 +8,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { Spinner } from '../components/Spinner';
 import { SurveyExtraDataCards } from '../components/SurveyExtraDataCards';
 import { useAuth } from '../hooks/useAuth';
-import { formatBytes, formatDateTime } from '../lib/format';
+import { errorMessage, formatBytes, formatDateTime } from '../lib/format';
 
 const CATEGORY_BADGE: Record<string, string> = {
   POOR: 'bg-red-100 text-red-700',
@@ -22,6 +22,26 @@ export function SurveyDetail() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'ADMIN';
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  function editHref() {
+    return isAdmin ? `/admin/surveys/${id}/edit` : `/surveys/${id}/edit`;
+  }
+
+  async function handleDelete(name: string) {
+    if (!id || deleting) return;
+    if (!window.confirm(`Hapus permanen survei "${name}"?\n\nData survei, jawaban, penilaian, dan lampiran akan terhapus dan tidak dapat dikembalikan.`)) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await api.delete(`/surveys/${id}`);
+      navigate(isAdmin ? '/admin/surveys' : '/surveys', { replace: true });
+    } catch (err) {
+      setDeleteError(errorMessage(err));
+      setDeleting(false);
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['survey', id],
@@ -46,12 +66,22 @@ export function SurveyDetail() {
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-6 pb-16 sm:px-6">
       <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-800">{property.name}</h2>
           <p className="text-sm text-slate-500">{property.address}</p>
         </div>
-        <StatusBadge status={data.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => navigate(editHref())}
+            title="Edit survei"
+          >
+            ✏️ Edit
+          </button>
+          <StatusBadge status={data.status} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -225,7 +255,7 @@ export function SurveyDetail() {
 
           {isAdmin && (
             <div className="card">
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">Aksi Admin</h3>
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Aksi Admin</h3>
               <button
                 type="button"
                 className="btn-primary w-full"
@@ -240,6 +270,17 @@ export function SurveyDetail() {
               >
                 Lihat Laporan
               </button>
+              <button
+                type="button"
+                className="mt-2 w-full rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleDelete(property.name)}
+                disabled={deleting}
+              >
+                {deleting ? 'Menghapus...' : '🗑 Hapus Survei'}
+              </button>
+              {deleteError && (
+                <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{deleteError}</p>
+              )}
             </div>
           )}
         </div>

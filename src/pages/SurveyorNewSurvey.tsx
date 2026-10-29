@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, API_URL } from '../api/client';
+import type { Survey } from '../api/types';
 import { Spinner } from '../components/Spinner';
 import { OccupationBreakdownSelect } from '../components/OccupationBreakdownSelect';
 import type { OccBreakdownItem } from '../lib/occBreakdown';
@@ -242,6 +244,18 @@ type DraftPayload = {
 export function SurveyorNewSurvey() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  // ---- Mode edit (route /surveys/:id/edit atau /admin/surveys/:id/edit) ----
+  const { id: editId } = useParams();
+  const isEdit = !!editId;
+  const [editLoading, setEditLoading] = useState(isEdit);
+  const [editPropertyName, setEditPropertyName] = useState('');
+  // false = survei lama yang input penilaianannya tidak tersimpan di extraData
+  // → grading lama TIDAK ditimpa (kirim tanpa blok grading, server mempertahankan).
+  const [gradingAvailable, setGradingAvailable] = useState(true);
+  const gradingLocked = isEdit && !gradingAvailable;
+  const loadedEditRef = useRef<string | null>(null);
 
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -469,19 +483,23 @@ export function SurveyorNewSurvey() {
       const missing = missingRequiredFields(SPRINKLER_DETAIL_FIELDS, special);
       if (missing.length > 0) errors[IDX.protection] = `Sprinkler — masih ada ${missing.length} detail wajib yang belum diisi.`;
     }
-    // Step grading — pilihan wajib per seksi (+ deskripsi aktivitas wajib di Occupancy)
-    if (!occupancyDesc.trim()) errors[IDX.occupancy] = 'Isi deskripsi aktivitas utama di lokasi.';
-    for (const [idxStr, keys] of Object.entries(STEP_REQUIRED_KEYS)) {
-      const idx = Number(idxStr);
-      if (errors[idx]) continue;
-      const missing = (keys as Array<keyof GradeInputs>).filter((k) => String(eff[k] ?? '') === '');
-      if (missing.length > 0) {
-        errors[idx] = `Masih ada ${missing.length} pilihan wajib di seksi ini yang belum dipilih.`;
+    // Step grading — pilihan wajib per seksi (+ deskripsi aktivitas wajib di
+    // Occupancy). Dilewati saat mode edit pada survei lama yang input
+    // penilaianannya tidak tersimpan — penilaian lama dipertahankan server.
+    if (!gradingLocked) {
+      if (!occupancyDesc.trim()) errors[IDX.occupancy] = 'Isi deskripsi aktivitas utama di lokasi.';
+      for (const [idxStr, keys] of Object.entries(STEP_REQUIRED_KEYS)) {
+        const idx = Number(idxStr);
+        if (errors[idx]) continue;
+        const missing = (keys as Array<keyof GradeInputs>).filter((k) => String(eff[k] ?? '') === '');
+        if (missing.length > 0) {
+          errors[idx] = `Masih ada ${missing.length} pilihan wajib di seksi ini yang belum dipilih.`;
+        }
       }
     }
     return errors;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tertanggung, alamat, general, spJenis, gi, occupancyDesc, kota, gempaZone, kodePos, gps, tsi, nhFlood, occItem, special, surveyDate, pelaksana]);
+  }, [tertanggung, alamat, general, spJenis, gi, occupancyDesc, kota, gempaZone, kodePos, gps, tsi, nhFlood, occItem, special, surveyDate, pelaksana, gradingLocked]);
 
   // ===================== Draft: simpan / pulihkan =====================
   const draftIdRef = useRef<string | null>(draftParam);
@@ -491,6 +509,83 @@ export function SurveyorNewSurvey() {
   const savingRef = useRef(false);
   const queuedSaveRef = useRef(false);
   const payloadRef = useRef<DraftPayload | null>(null);
+
+  /**
+   * Konversi survei tersimpan → snapshot wizard (mode edit). Semua isian
+   * dikembalikan dari property.extraData + field survey, kecuali input
+   * penilaian (gradeInputs) yang baru disimpan sejak fitur edit ini ada —
+   * survei lama menghasilkan payload default dan ditandai gradingLocked.
+   */
+  function surveyToDraft(s: Survey): DraftPayload {
+    const ex = (s.property.extraData ?? {}) as Record<string, unknown>;
+    const str = (k: string) => (typeof ex[k] === 'string' ? (ex[k] as string).trim() : '');
+    const num = (k: string) => (typeof ex[k] === 'number' ? String(ex[k]) : '');
+    const rec = (k: string) => (ex[k] && typeof ex[k] === 'object' ? (ex[k] as Record<string, string>) : {});
+    const occRaw = (ex.occBreakdown ?? null) as Record<string, unknown> | null;
+    const occItem: OccBreakdownItem | null =
+      occRaw && typeof occRaw.code === 'string'
+        ? {
+            code: occRaw.code,
+            description: String(occRaw.description ?? ''),
+            riskKey: String(occRaw.riskKey ?? ''),
+            riskLabel: String(occRaw.riskLabel ?? ''),
+            score: Number(occRaw.score ?? 0),
+            rating: String(occRaw.rating ?? ''),
+            sourceSheet: '',
+          }
+        : null;
+    const lossRows: LossRow[] = (Array.isArray(ex.lossRows) ? (ex.lossRows as Array<Record<string, string>>) : []).map(
+      (r, i) => ({
+        id: i + 1,
+        kategori: r.kategori ?? '',
+        tanggal: r.tanggal ?? '',
+        cause: r.cause ?? '',
+        amount: r.amount ?? '',
+      }),
+    );
+    const facilities: FacilityRow[] = (
+      Array.isArray(ex.facilities) ? (ex.facilities as Array<Record<string, string>>) : []
+    ).map((r, i) => ({ id: i + 1, nama: r.nama ?? '', arah: r.arah ?? '', jarak: r.jarak ?? '' }));
+    // notes = "Deskripsi aktivitas utama: …\n\n<catatan akhir>" (lihat submitSurvey)
+    let finalNotes = s.notes ?? '';
+    const descPrefix = `Deskripsi aktivitas utama: ${str('occupancyDesc')}`;
+    if (str('occupancyDesc') && finalNotes.startsWith(descPrefix)) {
+      finalNotes = finalNotes.slice(descPrefix.length).replace(/^\n+/, '');
+    }
+    const giRaw = (ex.gradeInputs ?? null) as Partial<GradeInputsDraft> | null;
+    return {
+      v: 1,
+      step: 0,
+      progress: { done: 0, total: steps.length - 1 },
+      info: {
+        tertanggung: s.property.name,
+        merk: str('merk'),
+        alamat: s.property.address,
+        kota: str('kota'),
+        kodePos: str('kodePos'),
+        gps: str('gps'),
+        surveyDate: (s.surveyDate ?? s.createdAt).slice(0, 10),
+        pelaksana: str('pelaksana'),
+        marketing: str('marketing'),
+        tsi: num('tsi'),
+        pic: str('pic'),
+      },
+      general: rec('general'),
+      spJenis: typeof ex.jenisOkupansi === 'string' ? ex.jenisOkupansi : '',
+      special: rec('special'),
+      upNotes: str('uploadNotes'),
+      gi: giRaw ? { ...DEFAULT_GRADE_INPUTS, ...giRaw } : { ...DEFAULT_GRADE_INPUTS },
+      gradeNotes: rec('gradeNotes'),
+      lossRows,
+      claimRingkasan: str('lossRingkasan'),
+      occItem,
+      occupancyDesc: str('occupancyDesc'),
+      facilities,
+      nhFlood: rec('nhFlood'),
+      finalNotes,
+      savedAt: new Date().toISOString(),
+    };
+  }
 
   function buildDraftPayload(): DraftPayload {
     const missing = Object.keys(stepInvalid)
@@ -561,7 +656,8 @@ export function SurveyorNewSurvey() {
    */
   async function saveDraft(opts?: { silent?: boolean }): Promise<void> {
     const silent = opts?.silent ?? false;
-    if (draftLoading) return;
+    // Mode edit tidak memakai draft — perubahan disimpan lewat PUT saat "Simpan".
+    if (isEdit || draftLoading) return;
     if (savingRef.current) {
       queuedSaveRef.current = true;
       return;
@@ -623,6 +719,32 @@ export function SurveyorNewSurvey() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftParam]);
 
+  // Muat survei yang diedit (\:id/edit) — isi ulang seluruh state wizard.
+  useEffect(() => {
+    if (!editId || loadedEditRef.current === editId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/surveys/${editId}`);
+        const s = res.data.data.survey as Survey;
+        if (cancelled) return;
+        applyDraftPayload(surveyToDraft(s));
+        const extra = (s.property.extraData ?? {}) as Record<string, unknown>;
+        setGradingAvailable(!!extra.gradeInputs);
+        setEditPropertyName(s.property.name);
+        loadedEditRef.current = editId;
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err));
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
+
   // Snapshot terbaru untuk penyimpanan saat tab ditutup.
   useEffect(() => {
     payloadRef.current = buildDraftPayload();
@@ -634,6 +756,7 @@ export function SurveyorNewSurvey() {
     const persist = () => {
       const payload = payloadRef.current;
       if (!payload) return;
+      if (editId) return; // mode edit — jangan membuat draft baru
       const id = draftIdRef.current;
       if (!id && !payload.info.tertanggung.trim()) return; // belum ada isi sama sekali
       void fetch(`${API_URL}/api/surveys/drafts`, {
@@ -646,7 +769,7 @@ export function SurveyorNewSurvey() {
     };
     window.addEventListener('pagehide', persist);
     return () => window.removeEventListener('pagehide', persist);
-  }, []);
+  }, [editId]);
 
   function setG(key: string, v: string) {
     setGeneral((prev) => ({ ...prev, [key]: v }));
@@ -776,10 +899,8 @@ export function SurveyorNewSurvey() {
     try {
       const effInputs = buildEffInputs() as GradeInputs;
       const totalLossAmount = lossRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-      // 1) Buat survey (dilewati bila retry setelah kegagalan upload lampiran)
-      let surveyId = createdSurveyIdRef.current;
-      if (!surveyId) {
-        const res = await api.post('/surveys', {
+      // 1) Buat survei baru (POST) atau perbarui (PUT saat mode edit).
+      const body = {
         property: {
           name: tertanggung,
           address: alamat,
@@ -818,6 +939,11 @@ export function SurveyorNewSurvey() {
             lossRingkasan: claimRingkasan.trim() || undefined,
             // Jarak ke fasilitas terdekat (revisi: baris dinamis di Exposure)
             facilities: facilities.map(({ nama, arah, jarak }) => ({ nama, arah, jarak })),
+            // Input penilaian + catatannya disimpan di sini supaya mode edit
+            // (PUT /surveys/:id) bisa memulihkannya — survei tanpa kedua kunci
+            // ini dianggap survei lama dan grading-nya tidak ditimpa.
+            gradeInputs: effInputs,
+            gradeNotes,
           },
         },
         surveyDate: surveyDate ? new Date(surveyDate).toISOString() : undefined,
@@ -826,20 +952,30 @@ export function SurveyorNewSurvey() {
             .filter(Boolean)
             .join('\n\n') || undefined,
         answers: [],
-        grading: {
-          inputs: effInputs,
-          notes: {
-            management: gradeNotes.management || undefined,
-            construction: gradeNotes.construction || undefined,
-            occupancy: gradeNotes.occupancy || undefined,
-            protection: gradeNotes.protection || undefined,
-            exposure: gradeNotes.exposure || undefined,
-            natural_hazards: gradeNotes.natural_hazards || undefined,
-            other_peril: gradeNotes.other_peril || undefined,
-            loss_estimate: gradeNotes.loss_estimate || undefined,
-          },
-        },
-      });
+        // Grading dilewati saat mode edit survei lama (input penilaian tidak
+        // tersimpan) — penilaian lama dipertahankan oleh server.
+        grading: gradingLocked
+          ? undefined
+          : {
+              inputs: effInputs,
+              notes: {
+                management: gradeNotes.management || undefined,
+                construction: gradeNotes.construction || undefined,
+                occupancy: gradeNotes.occupancy || undefined,
+                protection: gradeNotes.protection || undefined,
+                exposure: gradeNotes.exposure || undefined,
+                natural_hazards: gradeNotes.natural_hazards || undefined,
+                other_peril: gradeNotes.other_peril || undefined,
+                loss_estimate: gradeNotes.loss_estimate || undefined,
+              },
+            },
+      };
+      let surveyId = editId ?? createdSurveyIdRef.current;
+      if (editId) {
+        await api.put(`/surveys/${editId}`, body);
+        surveyId = editId;
+      } else if (!surveyId) {
+        const res = await api.post('/surveys', body);
         surveyId = res.data.data.survey.id;
         createdSurveyIdRef.current = surveyId;
       }
@@ -891,7 +1027,7 @@ export function SurveyorNewSurvey() {
       }
 
       // Survei berhasil terkirim — buang draft agar tidak muncul lagi di daftar.
-      if (draftIdRef.current) {
+      if (!editId && draftIdRef.current) {
         try {
           await api.delete(`/surveys/drafts/${draftIdRef.current}`);
         } catch {
@@ -900,7 +1036,12 @@ export function SurveyorNewSurvey() {
         draftIdRef.current = null;
       }
 
-      navigate(`/surveys/${surveyId}`, { replace: true });
+      if (editId) {
+        void queryClient.invalidateQueries();
+        navigate(user?.role === 'ADMIN' ? `/admin/surveys/${editId}` : `/surveys/${editId}`, { replace: true });
+      } else {
+        navigate(`/surveys/${surveyId}`, { replace: true });
+      }
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -967,12 +1108,20 @@ export function SurveyorNewSurvey() {
     <>
       {/* Header ASWATA full-bleed ada di SurveyorLayout (.app-header reff.html).
           Di sini hanya strip progress navy (.progress-wrap reff.html). */}
-      {draftLoading ? (
+      {draftLoading || editLoading ? (
         <div className="flex justify-center py-20">
           <Spinner />
         </div>
       ) : (
       <>
+      {isEdit && (
+        <div className="mb-3 rounded-lg border border-brand-300 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+          ✏️ <b>Mode Edit</b> — {editPropertyName || 'Survei'}
+          {gradingLocked
+            ? '. Survei ini dibuat sebelum input penilaian disimpan, jadi langkah penilaian (4–11) tidak dapat diubah — grading lama tetap dipertahankan.'
+            : '. Tekan “💾 Simpan Perubahan” di langkah terakhir untuk menyimpan.'}
+        </div>
+      )}
       <ProgressSteps labels={steps} current={step} onSelect={goTo} invalidSteps={stepInvalid} />
 
       <div className="mx-auto w-full max-w-[900px] px-4 py-5 pb-16 sm:px-6">
@@ -1895,11 +2044,18 @@ export function SurveyorNewSurvey() {
           <button
             type="button"
             className="rounded-lg bg-survey-g2 px-5 py-3 text-[13px] font-semibold text-survey-dark transition-colors hover:bg-survey-g3 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:px-7"
-            onClick={() => (step === 0 ? navigate('/surveys') : goPrev())}
+            onClick={() =>
+              isEdit
+                ? navigate(user?.role === 'ADMIN' ? `/admin/surveys/${editId}` : `/surveys/${editId}`)
+                : step === 0
+                  ? navigate('/surveys')
+                  : goPrev()
+            }
             disabled={submitting}
           >
-            {step === 0 ? 'Batal' : '← Sebelumnya'}
+            {isEdit ? '← Kembali' : step === 0 ? 'Batal' : '← Sebelumnya'}
           </button>
+          {!isEdit && (
           <button
             type="button"
             onClick={() => void saveDraft()}
@@ -1908,12 +2064,13 @@ export function SurveyorNewSurvey() {
           >
             {draftState === 'saving' ? 'Menyimpan...' : '💾 Simpan Draft'}
           </button>
-          {draftState === 'saved' && draftSavedAt && (
+          )}
+          {!isEdit && draftState === 'saved' && draftSavedAt && (
             <span className="text-[11px] text-slate-400">
               Tersimpan {new Date(draftSavedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
-          {draftState === 'error' && (
+          {!isEdit && draftState === 'error' && (
             <span className="text-[11px] font-medium text-survey-red">Draft gagal disimpan</span>
           )}
         </div>
@@ -1928,7 +2085,9 @@ export function SurveyorNewSurvey() {
             : step === steps.length - 1
               ? submitting
                 ? 'Menyimpan...'
-                : '✓ Kirim Survei'
+                : isEdit
+                  ? '💾 Simpan Perubahan'
+                  : '✓ Kirim Survei'
               : 'Selanjutnya →'}
         </button>
       </div>

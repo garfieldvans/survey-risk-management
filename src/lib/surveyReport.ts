@@ -338,10 +338,9 @@ export function buildSurveyReportHtml(data: SurveyReportInput): string {
     section('11. Loss Estimate & Other Perils', lossRowsTable,
       essay('Penjelasan risiko khusus lain', data.gradeNotes.other_peril ?? '') +
       essay('Catatan tambahan surveyor', data.gradeNotes.loss_estimate ?? '')) +
+    // "Hasil Risk Grading" dihapus dari laporan survey — skor/grade punya
+    // dokumen unduhan tersendiri (buildRiskGradingHtml).
     `<h2>12. Riwayat Klaim & Kerugian</h2>${essay('Ringkasan kejadian & tindak lanjut', data.claimRingkasan)}` +
-    `<h2>14. Hasil Risk Grading</h2><p><b>${esc(data.result.category)}</b> — Total Skor: <b>${esc(
-      String(data.result.total),
-    )} / 55 poin</b></p>${scoreTable(data.result)}${scaleTip()}` +
     finalNotesSection;
 
   return wrapDoc('Laporan Survey Risiko Properti', `PT Asuransi Wahana Tata — Survey Report · ${info.tertanggung || '-'}`, body);

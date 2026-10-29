@@ -52,6 +52,7 @@ export function App() {
             >
               <Route path="/surveys" element={<SurveyorSurveys />} />
               <Route path="/surveys/new" element={<SurveyorNewSurvey />} />
+              <Route path="/surveys/:id/edit" element={<SurveyorNewSurvey />} />
               <Route path="/surveys/:id" element={<SurveyDetail />} />
             </Route>
 
@@ -66,6 +67,7 @@ export function App() {
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/surveys" element={<AdminSurveys />} />
               <Route path="/admin/surveys/:id" element={<SurveyDetail />} />
+              <Route path="/admin/surveys/:id/edit" element={<SurveyorNewSurvey />} />
               <Route path="/admin/surveys/:id/review" element={<AdminSurveyReview />} />
               <Route path="/admin/occupations" element={<AdminOccupations />} />
               <Route path="/admin/questions" element={<AdminQuestions />} />
